@@ -2567,6 +2567,7 @@ function WelcomeRow({k,v}){
 function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
   const [suppliers,setSuppliers]=useState([]);
   const [buyers,setBuyers]=useState([]);
+  const [listings,setListings]=useState([]); // NEW: Listings for public view
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState('suppliers');
   const [query,setQuery]=useState('');
@@ -2587,6 +2588,13 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
       }
       setLoading(false);
     });
+    
+    // Load Listings for public view
+    if (firebaseReady) {
+      db.collection('se_listings').get().then(snap => {
+        setListings(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      }).catch(e => console.warn(e));
+    }
   },[]);
 
   const toggleSave=(supplierId)=>{
@@ -2628,17 +2636,30 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
     });
   },[buyers,query,category,city]);
 
-  const list=tab==='suppliers'?filteredSuppliers:filteredBuyers;
+  const filteredListings=useMemo(()=>{
+    const q=query.trim().toLowerCase();
+    const results = listings.filter(l=>{
+      if(category!=='all' && l.category!==category) return false;
+      if(!q) return true;
+      return (l.title + ' ' + l.description + ' ' + (l.moq||'')).toLowerCase().includes(q);
+    });
+    
+    // Sort by Promoted first
+    return results.sort((a,b) => (b.promoted ? 1:0) - (a.promoted ? 1:0));
+  },[listings,query,category]);
+
+  const list=tab==='suppliers'?filteredSuppliers:(tab==='buyers'?filteredBuyers:filteredListings);
 
   return <div className="fadein" style={{minHeight:'100%', background:'#F5FAF6', display:'flex', flexDirection:'column'}}>
     <main style={{flex:1,maxWidth:1240,margin:'0 auto',padding:'32px 24px 60px',width:'100%'}}>
       <div style={{marginBottom:24}}>
         <span className="micro" style={{color:'#E8730F',display:'block',marginBottom:12}}>Browse directory</span>
-        <h1 className="serif" style={{fontSize:'clamp(1.8rem,4vw,2.5rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 12px'}}>{list.length} {tab==='suppliers'?'supplier':'buyer'}{list.length===1?'':'s'}</h1>
+        <h1 className="serif" style={{fontSize:'clamp(1.8rem,4vw,2.5rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 12px'}}>{list.length} {tab==='suppliers'?'supplier':tab==='buyers'?'buyer':'product'}{list.length===1?'':'s'}</h1>
       </div>
       <div style={{display:'flex',gap:6,marginBottom:16,background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:12,padding:6}}>
         <button onClick={()=>{setTab('suppliers');setCategory('all');}} style={{flex:1,padding:'12px',background:tab==='suppliers'?'#0A1F12':'transparent',color:tab==='suppliers'?'#fff':'rgba(10,31,18,.7)',border:'none',borderRadius:8,fontSize:13.5,fontWeight:700}}>Suppliers ({suppliers.length})</button>
         <button onClick={()=>{setTab('buyers');setCategory('all');}} style={{flex:1,padding:'12px',background:tab==='buyers'?'#E8730F':'transparent',color:tab==='buyers'?'#fff':'rgba(10,31,18,.7)',border:'none',borderRadius:8,fontSize:13.5,fontWeight:700}}>Buyers ({buyers.length})</button>
+        <button onClick={()=>{setTab('listings');setCategory('all');}} style={{flex:1,padding:'12px',background:tab==='listings'?'#1B6CA8':'transparent',color:tab==='listings'?'#fff':'rgba(10,31,18,.7)',border:'none',borderRadius:8,fontSize:13.5,fontWeight:700}}>Products ({listings.length})</button>
       </div>
       <div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:12,padding:'16px 18px',marginBottom:16}}>
         <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
@@ -2650,11 +2671,13 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
             <option value="all">All categories</option>
             {CATEGORIES.map(c=><option key={c.key} value={c.key}>{c.title}</option>)}
           </select>
-          <select value={city} onChange={e=>setCity(e.target.value)} style={{...INP_STYLE,minWidth:150,cursor:'pointer'}}>
-            <option value="all">All locations</option>
-            <option value="__intl">🌍 International</option>
-            {ZAMBIAN_CITIES.map(c=><option key={c} value={c}>{c}</option>)}
-          </select>
+          {tab !== 'listings' && (
+            <select value={city} onChange={e=>setCity(e.target.value)} style={{...INP_STYLE,minWidth:150,cursor:'pointer'}}>
+              <option value="all">All locations</option>
+              <option value="__intl">🌍 International</option>
+              {ZAMBIAN_CITIES.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
         </div>
       </div>
       {loading?<div style={{textAlign:'center',padding:'60px 0'}}><i className="fas fa-spinner fa-spin" style={{fontSize:24,color:'#E8730F'}}></i></div>:
@@ -2681,7 +2704,7 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
             <p style={{fontSize:12,color:'rgba(10,31,18,.65)',lineHeight:1.5,margin:0,flex:1}}>{s.desc}</p>
             <button onClick={()=>{setProfile(s);setProfileType('supplier');}} style={{padding:'9px',background:`linear-gradient(135deg,${cat.color},${cat.color}cc)`,color:'#fff',border:'none',borderRadius:8,fontSize:11.5,fontWeight:700}}>View profile</button>
           </div>;
-        }):filteredBuyers.map(b=>(
+        }):tab==='buyers'?filteredBuyers.map(b=>(
           <div key={b.id} style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:14,padding:'18px',display:'flex',flexDirection:'column',gap:10,borderTop:'3px solid #E8730F'}}>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
               <span style={{width:40,height:40,borderRadius:10,background:'rgba(232,115,15,.15)',color:'#E8730F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}><i className="fas fa-cart-shopping"></i></span>
@@ -2697,16 +2720,26 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
             <p style={{fontSize:12,color:'rgba(10,31,18,.65)',lineHeight:1.5,margin:0,flex:1}}>{b.desc}</p>
             <button onClick={()=>{setProfile(b);setProfileType('buyer');}} style={{padding:'9px',background:'linear-gradient(135deg,#E8730F,#F5A623)',color:'#fff',border:'none',borderRadius:8,fontSize:11.5,fontWeight:700}}>View buyer</button>
           </div>
+        )):filteredListings.map(l=>(
+          <div key={l.id} style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:14,padding:'18px',display:'flex',flexDirection:'column',gap:10,borderTop:'3px solid #1B6CA8'}}>
+            {l.promoted && <span style={{alignSelf:'flex-start',display:'inline-flex',alignItems:'center',gap:5,padding:'3px 9px',borderRadius:99,background:'rgba(232,115,15,.1)',color:'#E8730F',fontSize:10,fontWeight:800,textTransform:'uppercase',letterSpacing:'.04em'}}><i className="fas fa-bolt" style={{fontSize:9}}></i> Promoted</span>}
+            <div style={{fontSize:14,fontWeight:800,color:'#0A1F12'}}>{l.title}</div>
+            <div style={{fontSize:12,color:'rgba(10,31,18,.65)',lineHeight:1.5,flex:1}}>{l.description}</div>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'auto', paddingTop:10, borderTop:'1px dashed rgba(10,31,18,.1)'}}>
+              <span style={{fontSize:13, fontWeight:800, color:'#1B6CA8'}}>{l.price ? `${l.price}` : 'Contact'}</span>
+              <span style={{fontSize:11, color:'rgba(10,31,18,.5)'}}>MOQ: {l.moq||'—'}</span>
+            </div>
+          </div>
         ))}
       </div>}
     </main>
     <Footer/>
-    {profile&&profileType==='supplier'&&<SupplierProfileModal supplier={profile} user={user} onClose={()=>setProfile(null)} onRequestQuote={(s)=>{setProfile(null);onRequestQuote(s);}}/>}
+    {profile&&profileType==='supplier'&&<SupplierProfileModal supplier={profile} user={user} listings={listings.filter(l => l.userId === profile.userId || l.userId === profile.id)} onClose={()=>setProfile(null)} onRequestQuote={(s)=>{setProfile(null);onRequestQuote(s);}}/>}
     {profile&&profileType==='buyer'&&<BuyerProfileModal buyer={profile} user={user} onClose={()=>setProfile(null)} onRequestIntro={(b)=>{setProfile(null);onRequestIntro(b);}}/>}
   </div>;
 }
 
-function SupplierProfileModal({supplier,user,onClose,onRequestQuote}){
+function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
   const cat=CAT_MAP[supplier.category]||{color:'#E8730F',icon:'fa-building',title:'Supplier'};
   const [isSaved,setIsSaved]=useState(()=>{
     if(!user) return false;
@@ -2753,8 +2786,23 @@ function SupplierProfileModal({supplier,user,onClose,onRequestQuote}){
       </div>
     </div>}
 
+    {listings && listings.length > 0 && <div style={{marginBottom:16}}>
+      <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Product Catalogue</div>
+      <div style={{display:'grid', gap:8}}>
+        {listings.map(l => (
+          <div key={l.id} style={{background:'#fff', border:'1px solid rgba(10,31,18,.1)', borderRadius:8, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div>
+               <div style={{fontSize:13, fontWeight:800, color:'#0A1F12'}}>{l.title}</div>
+               <div style={{fontSize:11, color:'rgba(10,31,18,.6)', marginTop:2}}>{l.description}</div>
+            </div>
+            <div style={{fontSize:13, fontWeight:800, color:'#1B6CA8'}}>{l.price || 'Contact'}</div>
+          </div>
+        ))}
+      </div>
+    </div>}
+
     {supplier.products&&<div style={{marginBottom:16}}>
-      <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Products</div>
+      <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Main Products</div>
       <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{supplier.products.map((p,i)=><span key={i} style={{fontSize:12.5,color:'rgba(10,31,18,.75)',background:'#fff',border:'1px solid rgba(10,31,18,.1)',padding:'6px 12px',borderRadius:99,fontWeight:600}}>{p}</span>)}</div>
     </div>}
     
