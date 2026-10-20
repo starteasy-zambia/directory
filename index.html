@@ -251,8 +251,8 @@ function toast(msg, type='success'){
   if(!root) return;
   const el = document.createElement('div');
   el.className = 'toast ' + type;
-  el.style.cssText = `display:flex;align-items:flex-start;gap:.65rem;background:${type==='error'?'#B8564F':'#1E7B3C'};color:#fff;padding:.85rem 1rem;border-radius:13px;box-shadow:0 20px 40px -15px rgba(0,0,0,.3);font-size:13px;font-weight:600;animation:slidein .25s cubic-bezier(.2,.9,.3,1.2);font-family:Inter,sans-serif;`;
-  el.innerHTML = `<i class="fas ${type==='error'?'fa-circle-exclamation':'fa-circle-check'}" style="margin-top:2px"></i><span>${String(msg).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</span>`;
+  el.style.cssText = `display:flex;align-items:flex-start;gap:.65rem;background:${type==='error'?'#B8564F':type==='info'?'#1B6CA8':'#1E7B3C'};color:#fff;padding:.85rem 1rem;border-radius:13px;box-shadow:0 20px 40px -15px rgba(0,0,0,.3);font-size:13px;font-weight:600;animation:slidein .25s cubic-bezier(.2,.9,.3,1.2);font-family:Inter,sans-serif;`;
+  el.innerHTML = `<i class="fas ${type==='error'?'fa-circle-exclamation':type==='info'?'fa-info-circle':'fa-circle-check'}" style="margin-top:2px"></i><span>${String(msg).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</span>`;
   root.appendChild(el);
   setTimeout(() => { el.style.transition='opacity .3s, transform .3s'; el.style.opacity='0'; el.style.transform='translateX(20px)'; setTimeout(()=>el.remove(),320); }, 3600);
 }
@@ -291,7 +291,14 @@ function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 async function uploadImage(file, path) {
   if(!firebaseReady || !storage) throw new Error("Firebase not ready");
   const fileRef = storage.ref(`${path}/${Date.now()}_${file.name}`);
-  await fileRef.put(file);
+  
+  // Timeout 15 seconds
+  const uploadTask = fileRef.put(file);
+  await Promise.race([
+    uploadTask,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Check connection or file size.')), 15000))
+  ]);
+  
   return await fileRef.getDownloadURL();
 }
 
@@ -618,6 +625,7 @@ function PasswordInput({value,onChange,placeholder='••••••••',au
 
 function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' }) {
   const [preview, setPreview] = useState(currentUrl || '');
+  const fileInputRef = useRef(null);
 
   useEffect(() => { setPreview(currentUrl || ''); }, [currentUrl]);
 
@@ -637,26 +645,48 @@ function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' })
   return (
     <div>
       <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>{label}</label>
-      <div style={{display:'flex', alignItems:'center', gap: 12}}>
-        <div style={{
-          width: aspectRatio === '3/1' ? 120 : 64,
-          height: aspectRatio === '3/1' ? 40 : 64,
+      
+      <div 
+        onClick={() => fileInputRef.current && fileInputRef.current.click()}
+        style={{
+          width: aspectRatio === '3/1' ? '100%' : 80,
+          height: aspectRatio === '3/1' ? 80 : 80,
           borderRadius: aspectRatio === '3/1' ? 8 : '50%',
           background: '#E5E7EB',
-          backgroundImage: preview ? `url(${preview})` : 'none',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          border: '2px solid #D1D5DB',
-          flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF',
-          overflow: 'hidden'
-        }}>
-          {!preview && <i className="fas fa-camera" style={{fontSize: aspectRatio === '3/1' ? 16 : 20}}></i>}
-        </div>
-        <div style={{flex: 1}}>
-          <input type="file" accept="image/*" onChange={handleFileChange} style={{display:'block', width:'100%', padding:'8px', background:'#fff', border:'1px dashed rgba(10,31,18,.3)', borderRadius:'6px', fontSize:'12px'}} />
+          border: '2px dashed #9CA3AF',
+          cursor: 'pointer',
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}
+      >
+        {preview ? (
+          <img src={preview} alt="Preview" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+        ) : (
+          <div style={{textAlign:'center', color:'#6B7280'}}>
+            <i className="fas fa-camera" style={{fontSize: 24, marginBottom: 4}}></i>
+            <div style={{fontSize: 10, fontWeight: 600}}>Upload</div>
+          </div>
+        )}
+        
+        {/* Hover overlay */}
+        <div style={{position:'absolute', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', opacity: 0, transition: 'opacity 0.2s'}}
+             onMouseEnter={e => e.currentTarget.style.opacity = 1}
+             onMouseLeave={e => e.currentTarget.style.opacity = 0}>
+          <i className="fas fa-pen" style={{color: '#fff', fontSize: 20}}></i>
         </div>
       </div>
+
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={fileInputRef}
+        onChange={handleFileChange} 
+        style={{display: 'none'}} 
+      />
     </div>
   );
 }
@@ -1630,8 +1660,14 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
       let finalCoverPhoto = editForm.coverPhoto;
 
       // Upload new images if selected
-      if (profileFile) finalProfilePhoto = await uploadImage(profileFile, 'profiles');
-      if (coverFile) finalCoverPhoto = await uploadImage(coverFile, 'covers');
+      if (profileFile) {
+        toast('Uploading profile photo...', 'info');
+        finalProfilePhoto = await uploadImage(profileFile, 'profiles');
+      }
+      if (coverFile) {
+        toast('Uploading cover photo...', 'info');
+        finalCoverPhoto = await uploadImage(coverFile, 'covers');
+      }
 
       const updates={
         name:editForm.name.trim(),
@@ -1670,12 +1706,12 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
       setProfileFile(null);
       setCoverFile(null);
       
-      setSaveMsg({kind:'ok',msg:'Profile saved.'});
+      setSaveMsg({kind:'ok',msg:'Profile saved successfully.'});
       toast('Profile saved successfully.', 'success');
       setTimeout(()=>setSaveMsg(null),3000);
     }catch(e){
-      setSaveMsg({kind:'err',msg:'Save failed: '+(e.code||e.message)});
-      toast('Save failed.', 'error');
+      setSaveMsg({kind:'err',msg:'Save failed: '+(e.message || e.code)});
+      toast('Save failed: '+(e.message || e.code), 'error');
     }
     finally{setSaving(false);}
   };
@@ -2060,7 +2096,9 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
               </>}
             </div>
             {saveMsg&&<div style={{background:saveMsg.kind==='ok'?'rgba(30,123,60,.1)':'rgba(184,86,79,.1)',border:'1px solid '+(saveMsg.kind==='ok'?'rgba(30,123,60,.3)':'rgba(184,86,79,.3)'),borderRadius:8,padding:'10px 14px',fontSize:12.5,color:saveMsg.kind==='ok'?'#0F5C2A':'#7C2318',marginTop:14}}>{saveMsg.msg}</div>}
-            <button onClick={saveProfile} disabled={saving} style={{marginTop:18,padding:'10px 22px',background:saving?'#ccc':'#0A1F12',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700}}>{saving?'Saving…':'Save changes'}</button>
+            <button onClick={saveProfile} disabled={saving} style={{marginTop:18,padding:'10px 22px',background:saving?'#ccc':'#0A1F12',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700, display:'flex', alignItems:'center', gap:8}}>
+              {saving ? <><i className="fas fa-spinner fa-spin"></i> Saving Profile...</> : 'Save changes'}
+            </button>
           </div>
         )}
 
