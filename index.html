@@ -290,13 +290,15 @@ function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 
 async function uploadImage(file, path) {
   if(!firebaseReady || !storage) throw new Error("Firebase Storage not initialized");
-  const fileRef = storage.ref(`${path}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`);
   
-  // Extended timeout to 30s to allow slower connections to finish
+  // Clean filename to avoid Firebase Storage errors
+  const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '');
+  const fileRef = storage.ref(`${path}/${Date.now()}_${safeName}`);
+  
   const uploadTask = fileRef.put(file);
   await Promise.race([
     uploadTask,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Check connection.')), 30000))
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Network too slow or Storage Rules blocked.')), 30000))
   ]);
   
   return await fileRef.getDownloadURL();
