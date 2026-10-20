@@ -288,6 +288,13 @@ function saveListings(uid, arr){ lsSet('se_listings_'+uid, arr); }
 function getSubs(uid){ return lsGet('se_subs_'+uid, {}); }
 function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 
+async function uploadImage(file, path) {
+  if(!firebaseReady || !storage) throw new Error("Firebase not ready");
+  const fileRef = storage.ref(`${path}/${Date.now()}_${file.name}`);
+  await fileRef.put(file);
+  return await fileRef.getDownloadURL();
+}
+
 async function fsLoadDirectory(){
   if(!firebaseReady) return null;
   try{
@@ -356,13 +363,25 @@ async function authSignUp(form){
   let cred=null;
   try{
     cred=await auth.createUserWithEmailAndPassword(form.email,form.password);
+    
+    // Upload images if provided
+    let profilePhotoUrl = '';
+    let coverPhotoUrl = '';
+    
+    if (form.profileFile) {
+      profilePhotoUrl = await uploadImage(form.profileFile, 'profiles');
+    }
+    if (form.role === 'supplier' && form.coverFile) {
+      coverPhotoUrl = await uploadImage(form.coverFile, 'covers');
+    }
+
     const profile={
       name:form.name,businessName:form.businessName,phone:form.phone,email:form.email,
       role:form.role,category:form.category,location:form.location,
       country:form.country||'Zambia',scope:form.scope||'local',
       status:'pending',createdAt:Date.now(),
-      profilePhoto: form.profilePhoto || '',
-      coverPhoto: form.coverPhoto || ''
+      profilePhoto: profilePhotoUrl,
+      coverPhoto: coverPhotoUrl
     };
     if(form.role==='supplier'){
       profile.products=splitCSV(form.products);
@@ -506,7 +525,6 @@ function Mark({size=38}){
   </span>;
 }
 
-// Logo2.png with fallback to the EXACT original Mark + wordmark
 function BrandLogo({ size = 38, showDirectoryLabel = false }){
   const [imgError, setImgError] = useState(false);
 
@@ -519,7 +537,6 @@ function BrandLogo({ size = 38, showDirectoryLabel = false }){
     />;
   }
 
-  // Fallback: identical to the original Mark + wordmark structure
   return (
     <span style={{ display:'inline-flex', alignItems:'center', gap:10 }}>
       <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:size,height:size,borderRadius:'50%',background:'#fff',boxShadow:'0 4px 12px -4px rgba(10,31,18,.5)',flexShrink:0}}>
@@ -597,6 +614,51 @@ function PasswordInput({value,onChange,placeholder='••••••••',au
       <i className={`fas ${show?'fa-eye-slash':'fa-eye'}`}></i>
     </button>
   </div>;
+}
+
+function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' }) {
+  const [preview, setPreview] = useState(currentUrl || '');
+
+  useEffect(() => { setPreview(currentUrl || ''); }, [currentUrl]);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast('Image is too large. Max 5MB.', 'error');
+        return;
+      }
+      const objUrl = URL.createObjectURL(file);
+      setPreview(objUrl);
+      onFileSelect(file);
+    }
+  };
+
+  return (
+    <div>
+      <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>{label}</label>
+      <div style={{display:'flex', alignItems:'center', gap: 12}}>
+        <div style={{
+          width: aspectRatio === '3/1' ? 120 : 64,
+          height: aspectRatio === '3/1' ? 40 : 64,
+          borderRadius: aspectRatio === '3/1' ? 8 : '50%',
+          background: '#E5E7EB',
+          backgroundImage: preview ? `url(${preview})` : 'none',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          border: '2px solid #D1D5DB',
+          flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF',
+          overflow: 'hidden'
+        }}>
+          {!preview && <i className="fas fa-camera" style={{fontSize: aspectRatio === '3/1' ? 16 : 20}}></i>}
+        </div>
+        <div style={{flex: 1}}>
+          <input type="file" accept="image/*" onChange={handleFileChange} style={{display:'block', width:'100%', padding:'8px', background:'#fff', border:'1px dashed rgba(10,31,18,.3)', borderRadius:'6px', fontSize:'12px'}} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Nav({user,profile,onSignIn,onSignUp,onDashboard,onBrowse,onSpotlights,onSignOut}){
@@ -1491,6 +1553,9 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
   const [mySpotlights, setMySpotlights] = useState([]);
 
+  const [profileFile, setProfileFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
+
   useEffect(()=>{
     if(!user){setLoading(false);return;}
     loadUserProfile(user.uid).then(async p=>{
@@ -1560,7 +1625,26 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
     setSaving(true);setSaveMsg(null);
     try{
       const isSupplier=profile.role==='supplier';
-      const updates={name:editForm.name.trim(),businessName:editForm.businessName.trim(),phone:editForm.phone.trim(),category:editForm.category,location:editForm.location,country:editForm.country||'Zambia',scope:editForm.scope||'local', profilePhoto: editForm.profilePhoto, coverPhoto: editForm.coverPhoto};
+      
+      let finalProfilePhoto = editForm.profilePhoto;
+      let finalCoverPhoto = editForm.coverPhoto;
+
+      // Upload new images if selected
+      if (profileFile) finalProfilePhoto = await uploadImage(profileFile, 'profiles');
+      if (coverFile) finalCoverPhoto = await uploadImage(coverFile, 'covers');
+
+      const updates={
+        name:editForm.name.trim(),
+        businessName:editForm.businessName.trim(),
+        phone:editForm.phone.trim(),
+        category:editForm.category,
+        location:editForm.location,
+        country:editForm.country||'Zambia',
+        scope:editForm.scope||'local', 
+        profilePhoto: finalProfilePhoto, 
+        coverPhoto: finalCoverPhoto
+      };
+      
       if(isSupplier){
         updates.products=splitCSV(editForm.products);
         updates.moq=editForm.moq;
@@ -1579,11 +1663,20 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         updates.orderValue=editForm.orderValue;
       }
       if(firebaseReady) await db.collection('se_users').doc(user.uid).update(updates);
-      setProfile({...profile,...updates});
+      
+      const updatedProfile = {...profile,...updates};
+      setProfile(updatedProfile);
+      setEditForm(prev => ({...prev, profilePhoto: finalProfilePhoto, coverPhoto: finalCoverPhoto}));
+      setProfileFile(null);
+      setCoverFile(null);
+      
       setSaveMsg({kind:'ok',msg:'Profile saved.'});
       toast('Profile saved successfully.', 'success');
       setTimeout(()=>setSaveMsg(null),3000);
-    }catch(e){setSaveMsg({kind:'err',msg:'Save failed: '+(e.code||e.message)});toast('Save failed.', 'error');}
+    }catch(e){
+      setSaveMsg({kind:'err',msg:'Save failed: '+(e.code||e.message)});
+      toast('Save failed.', 'error');
+    }
     finally{setSaving(false);}
   };
 
@@ -1919,7 +2012,12 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
             </div>
             <div style={{marginTop:16}}>
               {isSupplier?<>
-                <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Products (comma-separated)</label><TIn value={editForm.products} onChange={v=>setEditForm({...editForm,products:v})}/>
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))'}}>
+                  <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" />
+                  <ImageUploader label="Cover Image (Wide)" currentUrl={editForm.coverPhoto} onFileSelect={setCoverFile} aspectRatio="3/1" />
+                </div>
+
+                <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6, marginTop:16}}>Products (comma-separated)</label><TIn value={editForm.products} onChange={v=>setEditForm({...editForm,products:v})}/>
                 <div style={{marginTop:12,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
                   <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>MOQ</label><TIn value={editForm.moq} onChange={v=>setEditForm({...editForm,moq:v})}/></div>
                   <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Lead time</label><TIn value={editForm.leadTime} onChange={v=>setEditForm({...editForm,leadTime:v})}/></div>
@@ -1927,8 +2025,6 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 </div>
 
                 <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
-                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={editForm.profilePhoto} onChange={v=>setEditForm({...editForm,profilePhoto:v})} placeholder="https://..."/></div>
-                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Cover Image URL</label><TIn value={editForm.coverPhoto} onChange={v=>setEditForm({...editForm,coverPhoto:v})} placeholder="https://..."/></div>
                   <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={editForm.website} onChange={v=>setEditForm({...editForm,website:v})} placeholder="https://..."/></div>
                   <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (Comma-separated URLs)</label><TIn value={editForm.photos} onChange={v=>setEditForm({...editForm,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
                 </div>
@@ -1949,8 +2045,8 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 </div>
 
               </>:<>
-                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', marginBottom:16}}>
-                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={editForm.profilePhoto} onChange={v=>setEditForm({...editForm,profilePhoto:v})} placeholder="https://..."/></div>
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', marginBottom:16}}>
+                  <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" />
                 </div>
                 <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy (comma-separated)</label><TIn value={editForm.sources} onChange={v=>setEditForm({...editForm,sources:v})}/>
                 <div style={{marginTop:12,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
@@ -2056,7 +2152,9 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 const c = CAT_MAP[s.category] || cat;
                 return <div key={s.id} style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:14,padding:'18px',display:'flex',flexDirection:'column',gap:10,borderTop:`3px solid ${c.color}`}}>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
-                    <span style={{width:38,height:38,borderRadius:10,background:c.color+'15',color:c.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}><i className={`fas ${c.icon}`}></i></span>
+                    <span style={{width:38,height:38,borderRadius:10,background:c.color+'15',color:c.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0, overflow:'hidden'}}>
+                      {s.profilePhoto ? <img src={s.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <i className={`fas ${c.icon}`}></i>}
+                    </span>
                     <div style={{minWidth:0,flex:1}}>
                       <div style={{fontSize:13.5,fontWeight:800,color:'#0A1F12',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
                       <div style={{fontSize:11,color:'rgba(10,31,18,.55)'}}>{locLabel(s)}</div>
@@ -2965,7 +3063,10 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
   const [resetSent,setResetSent]=useState(false);
   const [resetEmail,setResetEmail]=useState('');
   const [signupSuccess,setSignupSuccess]=useState(false);
-  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:'',website:'',photos:'',profilePhoto:'',coverPhoto:''});
+  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:'',website:'',photos:''});
+  
+  const [profileFile, setProfileFile] = useState(null);
+  const [coverFile, setCoverFile] = useState(null);
 
   useEffect(()=>{
     if(open){
@@ -2975,6 +3076,8 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
       setResetSent(false);
       setResetEmail('');
       setSignupSuccess(false);
+      setProfileFile(null);
+      setCoverFile(null);
     }
   },[open,initialMode,initialRole]);
 
@@ -3027,7 +3130,7 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
     if(role==='buyer' && !form.sources.trim()) return setErr('List what you buy regularly.');
     setSubmitting(true);
     try{
-      const result = await authSignUp({...form,role});
+      const result = await authSignUp({...form,role, profileFile, coverFile});
       setSignupSuccess(true);
       setMode('signin');
       setForm(f=>({...f,email:result.email,password:''}));
@@ -3154,8 +3257,12 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Lead time</label><TIn value={form.leadTime} onChange={v=>setForm({...form,leadTime:v})} placeholder="e.g. 3–5 days"/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Delivery coverage</label><TIn value={form.delivery} onChange={v=>setForm({...form,delivery:v})}/></div>
           
-          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={form.profilePhoto} onChange={v=>setForm({...form,profilePhoto:v})} placeholder="https://..."/></div>
-          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Cover Image URL</label><TIn value={form.coverPhoto} onChange={v=>setForm({...form,coverPhoto:v})} placeholder="https://..."/></div>
+          <div style={{gridColumn:'1/-1'}}>
+            <ImageUploader label="Profile Image (Square)" currentUrl="" onFileSelect={setProfileFile} aspectRatio="1/1" />
+          </div>
+          <div style={{gridColumn:'1/-1'}}>
+            <ImageUploader label="Cover Image (Wide)" currentUrl="" onFileSelect={setCoverFile} aspectRatio="3/1" />
+          </div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={form.website} onChange={v=>setForm({...form,website:v})} placeholder="https://..."/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (URLs)</label><TIn value={form.photos} onChange={v=>setForm({...form,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
         </div>
@@ -3163,7 +3270,9 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
       {role==='buyer'&&<div style={{background:'rgba(232,115,15,.04)',border:'1px dashed rgba(232,115,15,.25)',borderRadius:10,padding:'14px 16px',marginBottom:14}}>
         <div style={{fontSize:10.5,textTransform:'uppercase',fontWeight:800,color:'#8A6828',marginBottom:10}}>What you buy</div>
         <div style={{display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
-          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={form.profilePhoto} onChange={v=>setForm({...form,profilePhoto:v})} placeholder="https://..."/></div>
+          <div style={{gridColumn:'1/-1'}}>
+            <ImageUploader label="Profile Image (Square)" currentUrl="" onFileSelect={setProfileFile} aspectRatio="1/1" />
+          </div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy * (comma-separated)</label><TIn value={form.sources} onChange={v=>setForm({...form,sources:v})} placeholder="e.g. Fresh vegetables, chicken"/></div>
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Frequency</label>
             <select value={form.frequency} onChange={e=>setForm({...form,frequency:e.target.value})} style={{...INP_STYLE,cursor:'pointer'}}>
