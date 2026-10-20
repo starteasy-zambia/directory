@@ -366,6 +366,8 @@ async function authSignUp(form){
       profile.moq=form.moq||'Contact supplier';
       profile.delivery=form.delivery||'Contact supplier';
       profile.leadTime=form.leadTime||'Contact supplier';
+      profile.website=form.website||'';
+      profile.photos=form.photos||'';
     }
     if(form.role==='buyer'){
       profile.sources=splitCSV(form.sources);
@@ -501,39 +503,31 @@ function Mark({size=38}){
   </span>;
 }
 
-function BrandLogo({ size = 38, variant = 'nav' }){
+// Logo2.png with fallback to the EXACT original Mark + wordmark
+function BrandLogo({ size = 38, showDirectoryLabel = false }){
   const [imgError, setImgError] = useState(false);
 
-  // Use Logo2.png when it loads successfully
   if (!imgError) {
     return <img
       src="Logo2.png"
       alt="StartEasy"
       onError={() => setImgError(true)}
-      style={{
-        height: size,
-        maxWidth: size * 4,
-        width: 'auto',
-        objectFit: 'contain',
-        flexShrink: 0,
-        display: 'block'
-      }}
+      style={{ height: size, maxWidth: size * 5, width: 'auto', objectFit: 'contain', flexShrink: 0, display: 'block' }}
     />;
   }
 
-  // Fallback: original text-based logo
-  const isLight = variant === 'light';
+  // Fallback: identical to the original Mark + wordmark structure
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+    <span style={{ display:'inline-flex', alignItems:'center', gap:10 }}>
       <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:size,height:size,borderRadius:'50%',background:'#fff',boxShadow:'0 4px 12px -4px rgba(10,31,18,.5)',flexShrink:0}}>
         <span className="serif" style={{fontSize:size*0.5,fontWeight:800,color:'#0A1F12',lineHeight:1}}>S<span style={{color:'#E8730F'}}>E</span></span>
       </span>
-      <span style={{ textAlign: 'left', lineHeight: 1 }}>
-        {variant === 'nav' && (
-          <span style={{ display: 'block', fontSize: 9, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 700, color: isLight ? 'rgba(10,31,18,.35)' : 'rgba(255,255,255,.35)', marginBottom: 4 }}>Directory</span>
-        )}
-        <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: isLight ? '#0A1F12' : '#fff' }}>Start<em style={{ fontStyle: 'normal', color: '#F5A623' }}>Easy</em></span>
-      </span>
+      {showDirectoryLabel && (
+        <span style={{ textAlign:'left', lineHeight:1 }}>
+          <span style={{display:'block',fontSize:9,letterSpacing:'.18em',textTransform:'uppercase',fontWeight:700,color:'rgba(255,255,255,.35)',marginBottom:4}}>Directory</span>
+          <span style={{display:'block',fontSize:15,fontWeight:700,color:'#fff'}}>Start<em style={{fontStyle:'normal',color:'#F5A623'}}>Easy</em></span>
+        </span>
+      )}
     </span>
   );
 }
@@ -641,13 +635,13 @@ function Nav({user,profile,onSignIn,onSignUp,onDashboard,onBrowse,onSpotlights,o
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',height:'100%',gap:10}}>
         
         <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0}}>
-          <a href="#" onClick={(e)=>{e.preventDefault(); user ? onDashboard() : onSignIn();}} style={{display:'flex',alignItems:'center',textDecoration:'none',flexShrink:0}}>
-            <BrandLogo size={42} variant="nav" />
+          <a href="#" onClick={(e)=>{e.preventDefault(); user ? onDashboard() : onSignIn();}} style={{display:'flex',alignItems:'center',gap:10,textDecoration:'none',flexShrink:0}}>
+            <BrandLogo size={38} showDirectoryLabel={true} />
           </a>
           
           <a href={MAIN_PLATFORM_URL} style={{display:'inline-flex',alignItems:'center',gap:7,padding:'9px 13px',background:'linear-gradient(135deg,#E8730F,#F5A623)',color:'#fff',borderRadius:'9px',fontSize:'12px',fontWeight:'800',textDecoration:'none',boxShadow:'0 8px 18px -8px rgba(232,115,15,.6)',whiteSpace:'nowrap',flexShrink:0}}>
             <i className="fas fa-arrow-left" style={{fontSize:11}}></i>
-            <span className="hide-sm">Platform</span>
+            <span>Back to Platform</span>
           </a>
         </div>
         
@@ -696,7 +690,13 @@ function Nav({user,profile,onSignIn,onSignUp,onDashboard,onBrowse,onSpotlights,o
               <i className={`fas ${menuOpen?'fa-times':'fa-bars'}`}></i>
             </button>
 
-            {menuOpen && <div className="mc" style={{position:'absolute', right:0, top:'calc(100% + 12px)', width:280, maxHeight:'calc(100vh - 90px)', overflowY:'auto', background:'#08170D', border:'1px solid rgba(245,166,35,.2)', borderRadius:14, padding:10, display:'flex', flexDirection:'column', gap:6, boxShadow:'0 20px 40px -10px rgba(0,0,0,.6)', zIndex:100}}>
+            {menuOpen && <div className="mc" style={{
+                position:'absolute', right:0, top:'calc(100% + 12px)', 
+                width:280, 
+                maxHeight:'calc(100vh - 160px)', 
+                overflowY:'auto', 
+                background:'#08170D', border:'1px solid rgba(245,166,35,.2)', borderRadius:14, padding:10, display:'flex', flexDirection:'column', gap:6, boxShadow:'0 20px 40px -10px rgba(0,0,0,.6)', zIndex:100
+              }}>
               
               {!user && <>
                 <MenuLink href="#" onClick={()=>onSignUp(null)} icon="fa-user-plus" style={{background:'linear-gradient(135deg,#E8730F,#F5A623)', border:'none', justifyContent:'center'}}>Create Account</MenuLink>
@@ -760,13 +760,12 @@ function Hero({stats}){
     <div style={{position:'absolute',top:-160,right:-120,width:560,height:560,background:'radial-gradient(circle, rgba(232,115,15,.18), transparent 65%)',pointerEvents:'none'}}/>
     <div style={{position:'absolute',bottom:-180,left:-100,width:520,height:520,background:'radial-gradient(circle, rgba(46,156,74,.10), transparent 65%)',pointerEvents:'none'}}/>
     <div style={{maxWidth:1240,margin:'0 auto',position:'relative',zIndex:1,textAlign:'center'}}>
-      <span className="micro" style={{color:'#F5A623',display:'inline-block',marginBottom:20,letterSpacing:'.22em'}}>Businesses &amp; Suppliers Directory</span>
       <h1 className="serif" style={{fontSize:'clamp(2.4rem,6vw,4rem)',lineHeight:1.05,margin:'0 auto 24px',maxWidth:'52rem'}}>
         Helping businesses <em style={{fontStyle:'italic',color:'#F5A623'}}>buy better.</em><br/>
         Helping suppliers <em style={{fontStyle:'italic',color:'#F5A623'}}>sell more.</em>
       </h1>
       <p style={{fontSize:'clamp(1rem,1.5vw,1.2rem)',lineHeight:1.7,color:'rgba(255,255,255,.7)',maxWidth:'46rem',margin:'0 auto 40px'}}>
-        A two-sided marketplace connecting Zambian businesses with verified suppliers — and suppliers with the businesses that will actually buy from them.
+        A two-sided marketplace connecting Zambian businesses with verified suppliers — and local / international suppliers with the businesses that will actually buy from them.
       </p>
       {stats && <div style={{display:'flex',flexWrap:'wrap',gap:24,fontSize:12,color:'rgba(255,255,255,.6)',justifyContent:'center'}}>
         <span><i className="fas fa-check-circle" style={{color:'#2E9C4A',marginRight:6}}></i>{stats.suppliers} suppliers</span>
@@ -854,8 +853,9 @@ function Footer(){
         </div>
         <a href={MAIN_PLATFORM_URL} className="footer-platform-btn" style={{display:'inline-flex',alignItems:'center',gap:10,padding:'15px 24px',background:'linear-gradient(135deg,#E8730F,#F5A623)',color:'#fff',borderRadius:11,fontSize:14,fontWeight:800,textDecoration:'none',boxShadow:'0 14px 30px -10px rgba(232,115,15,.7)',whiteSpace:'nowrap'}}><i className="fas fa-arrow-left"></i> Back to StartEasy Platform</a>
       </div>
-      <div style={{display:'flex',alignItems:'center',marginBottom:12}}>
-        <BrandLogo size={40} variant="footer" />
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+        <Mark size={36}/>
+        <span style={{fontSize:15,fontWeight:700,color:'#fff'}}>Start<em style={{fontStyle:'normal',color:'#F5A623'}}>Easy</em></span>
       </div>
       <p style={{fontSize:11,textTransform:'uppercase',color:'#F5A623',fontWeight:700,marginBottom:16}}>Helping businesses buy better. Helping suppliers sell more.</p>
       <div style={{display:'flex',flexWrap:'wrap',gap:20,fontSize:13,color:'rgba(255,255,255,.5)',marginBottom:24}}>
@@ -1236,7 +1236,6 @@ function SpotlightCard({ post, user, onComment }) {
       
       {post.title && <h3 style={{fontSize:16, fontWeight:800, color:'#0A1F12', marginBottom:10}}>{post.title}</h3>}
       
-      {/* Display Media if present */}
       {post.mediaUrl && post.mediaType === 'image' && (
         <img src={post.mediaUrl} alt="Spotlight media" className="spotlight-media" />
       )}
@@ -1304,7 +1303,6 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
       return;
     }
     
-    // REAL-TIME LIVE FEED (24/7)
     const unsub = db.collection('se_spotlights').orderBy('createdAt', 'desc').limit(50)
       .onSnapshot(snap => {
         const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1382,7 +1380,7 @@ function CreateSpotlightModal({ onClose, onSave, profile }) {
     if (selected) {
       if (selected.size > 5 * 1024 * 1024) {
         toast('Image is too large. Please select a file under 5MB.', 'error');
-        e.target.value = null; // clear input
+        e.target.value = null;
         return;
       }
       setFile(selected);
@@ -1399,23 +1397,19 @@ function CreateSpotlightModal({ onClose, onSave, profile }) {
     let mediaUrl = null;
     let mediaType = null;
 
-    // Upload to Firebase Storage if there is a file
     if (file && storage) {
       try {
         const fileRef = storage.ref(`spotlights/${Date.now()}_${file.name}`);
-        
-        // Add a 10-second timeout for the upload to prevent hanging
         const uploadTask = fileRef.put(file);
         await Promise.race([
           uploadTask,
           new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out')), 10000))
         ]);
-        
         mediaUrl = await fileRef.getDownloadURL();
         mediaType = file.type.startsWith('video') ? 'video' : 'image';
       } catch (error) {
         console.error("Upload failed or timed out", error);
-        toast('Upload failed. Posting text only.', 'error');
+        toast('Upload failed', 'error');
         mediaUrl = null;
         mediaType = null;
       }
@@ -1482,17 +1476,14 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
   const [saveMsg,setSaveMsg]=useState(null);
   const [allSuppliers,setAllSuppliers]=useState([]);
   
-  // Paid Services State
   const [subs, setSubs] = useState({});
   const [campaigns,setCampaignsState]=useState([]);
   const [listings,setListingsState]=useState([]);
   
-  // Modals
   const [campaignModalOpen,setCampaignModalOpen]=useState(false);
   const [listingModalOpen,setListingModalOpen]=useState(false);
   const [checkout, setCheckout] = useState(null);
 
-  // Dashboard Spotlight State (Real-time)
   const [mySpotlights, setMySpotlights] = useState([]);
 
   useEffect(()=>{
@@ -1504,6 +1495,9 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         country:p.country||'Zambia',scope:p.scope||'local',
         products:Array.isArray(p.products)?p.products.join(', '):(p.products||''),
         moq:p.moq||'',delivery:p.delivery||'',leadTime:p.leadTime||'',
+        website:p.website||'', photos:p.photos||'',
+        regNo:p.regNo||'', docsUrl:p.docsUrl||'', refs:p.refs||'',
+        featured:p.featured||false,
         sources:Array.isArray(p.sources)?p.sources.join(', '):(p.sources||''),
         frequency:p.frequency||'Monthly',orderValue:p.orderValue||''
       });
@@ -1527,7 +1521,6 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
     });
   },[user]);
 
-  // Listener for dashboard spotlight real-time updates
   useEffect(() => {
     if (!firebaseReady || !user) return;
     const unsub = db.collection('se_spotlights').orderBy('createdAt', 'desc')
@@ -1562,8 +1555,23 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
     try{
       const isSupplier=profile.role==='supplier';
       const updates={name:editForm.name.trim(),businessName:editForm.businessName.trim(),phone:editForm.phone.trim(),category:editForm.category,location:editForm.location,country:editForm.country||'Zambia',scope:editForm.scope||'local'};
-      if(isSupplier){updates.products=splitCSV(editForm.products);updates.moq=editForm.moq;updates.delivery=editForm.delivery;updates.leadTime=editForm.leadTime;}
-      else{updates.sources=splitCSV(editForm.sources);updates.frequency=editForm.frequency;updates.orderValue=editForm.orderValue;}
+      if(isSupplier){
+        updates.products=splitCSV(editForm.products);
+        updates.moq=editForm.moq;
+        updates.delivery=editForm.delivery;
+        updates.leadTime=editForm.leadTime;
+        updates.website=editForm.website;
+        updates.photos=editForm.photos;
+        updates.regNo=editForm.regNo;
+        updates.docsUrl=editForm.docsUrl;
+        updates.refs=editForm.refs;
+        updates.featured=editForm.featured;
+      }
+      else{
+        updates.sources=splitCSV(editForm.sources);
+        updates.frequency=editForm.frequency;
+        updates.orderValue=editForm.orderValue;
+      }
       if(firebaseReady) await db.collection('se_users').doc(user.uid).update(updates);
       setProfile({...profile,...updates});
       setSaveMsg({kind:'ok',msg:'Profile saved.'});
@@ -1613,6 +1621,13 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
       else if (checkout.type === 'campaign') updatedSubs.campaigns = true;
       else if (checkout.type === 'leads') updatedSubs.leads = true;
       else if (checkout.type === 'buyer') updatedSubs.buyerSub = true;
+      else if (checkout.type === 'premium') {
+        updatedSubs.premium = true;
+        setProfile(prev => ({ ...prev, featured: true }));
+        if (firebaseReady) {
+          db.collection('se_users').doc(user.uid).update({ featured: true }).catch(e => console.warn(e));
+        }
+      }
       
       setSubs(updatedSubs);
       saveSubs(user.uid, updatedSubs);
@@ -1645,6 +1660,10 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
   const handleBuyerSubscription = () => {
     handleServicePayment('buyer', 'DIR-BUYER', 'Buyer Access Subscription', 'K50', () => {});
+  };
+
+  const handlePremiumUpgrade = () => {
+    handleServicePayment('premium', 'DIR-PREMIUM', 'Premium Profile Upgrade', 'K100', () => {});
   };
 
   const handleAddListing = async (newList) => {
@@ -1691,9 +1710,8 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
   const isSupplier=profile.role==='supplier';
   const cat=CAT_MAP[profile.category]||{title:'General',color:'#E8730F',icon:'fa-building'};
-  
-  // FIX: Verify state based on local subscription OR firestore profile
   const isVerified = profile.status === 'verified' || subs.verified;
+  const isPremium = profile.featured || subs.premium;
 
   const navItems = isSupplier ? [
     {key:'overview', label:'Overview', icon:'fa-border-all'},
@@ -1729,6 +1747,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
             <h1>
               {isSupplier ? profile.businessName : profile.name}
               {isVerified && <VerifiedBadge size={24} />}
+              {isPremium && <span className="chip chip-accent" style={{marginLeft:8}}>Premium</span>}
             </h1>
             <p>{isSupplier ? 'Supplier dashboard' : 'Buyer dashboard'} · <span className={`chip ${isVerified?'':'chip-danger'}`}>{isVerified?'Verified':'Unverified'}</span></p>
           </div>
@@ -1759,7 +1778,6 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
               )}
             </div>
 
-            {/* Actions requiring payment */}
             {isSupplier ? (
               <>
                 {!isVerified && (
@@ -1768,14 +1786,26 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                       <i className="fas fa-shield-halved" style={{color:'#E8730F',fontSize:22,marginTop:2}}></i>
                       <div>
                         <h3 style={{fontSize:15,fontWeight:800,color:'#0A1F12',margin:'0 0 4px'}}>Get your profile verified</h3>
-                        <p style={{fontSize:13,color:'rgba(10,31,18,.65)',margin:0}}>Build trust. Unlock the verified badge for K75 one-off (or K600 annual).</p>
+                        <p style={{fontSize:13,color:'rgba(10,31,18,.65)',margin:0}}>Ensure your verification details are filled in your profile, then pay K75 to unlock the badge.</p>
                       </div>
                     </div>
                     <button onClick={handleVerification} style={{padding:'10px 18px',background:'#0A1F12',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700}}>Get Verified</button>
                   </div>
                 )}
                 
-                {/* Spotlight CTA */}
+                {!isPremium && (
+                  <div style={{background:'linear-gradient(135deg,#EAF7EE,#F1FAF4)', border:'1px solid #C1E6D0', borderRadius:14, padding:'20px', marginBottom:18, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:14}}>
+                    <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                      <i className="fas fa-star" style={{color:'#1E7B3C',fontSize:22,marginTop:2}}></i>
+                      <div>
+                        <h3 style={{fontSize:15,fontWeight:800,color:'#0A4D28',margin:'0 0 4px'}}>Upgrade to Premium</h3>
+                        <p style={{fontSize:13,color:'rgba(10,31,18,.65)',margin:0}}>Get priority placement in categories. Pay K100/month.</p>
+                      </div>
+                    </div>
+                    <button onClick={handlePremiumUpgrade} style={{padding:'10px 18px',background:'#1E7B3C',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700}}>Upgrade</button>
+                  </div>
+                )}
+
                 <div style={{background:'linear-gradient(135deg,#0A1F12,#123A1F)', borderRadius:14, padding:'24px', marginBottom:18, color:'#fff', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:14}}>
                   <div>
                     <h3 style={{fontSize:16,fontWeight:800, color:'#F5A623', margin:'0 0 6px'}}><i className="fas fa-newspaper" style={{marginRight:8}}></i> Business Spotlight</h3>
@@ -1889,6 +1919,27 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                   <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Lead time</label><TIn value={editForm.leadTime} onChange={v=>setEditForm({...editForm,leadTime:v})}/></div>
                   <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Delivery</label><TIn value={editForm.delivery} onChange={v=>setEditForm({...editForm,delivery:v})}/></div>
                 </div>
+
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
+                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={editForm.website} onChange={v=>setEditForm({...editForm,website:v})} placeholder="https://..."/></div>
+                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (Comma-separated URLs)</label><TIn value={editForm.photos} onChange={v=>setEditForm({...editForm,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
+                </div>
+
+                <div style={{background:'#F8FAF6', padding:16, borderRadius:8, marginTop:16, border:'1px solid rgba(10,31,18,.1)'}}>
+                  <h4 style={{fontSize:13, fontWeight:800, marginBottom:8, color:'#0A1F12'}}>Verification Details</h4>
+                  <p style={{fontSize:12, color:'rgba(10,31,18,.6)', marginBottom:12}}>Fill these in before purchasing verification.</p>
+                  <div style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
+                    <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Registration No.</label><TIn value={editForm.regNo} onChange={v=>setEditForm({...editForm,regNo:v})}/></div>
+                    <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Document URL</label><TIn value={editForm.docsUrl} onChange={v=>setEditForm({...editForm,docsUrl:v})}/></div>
+                    <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>References (Name & Phone)</label><TIn value={editForm.refs} onChange={v=>setEditForm({...editForm,refs:v})}/></div>
+                  </div>
+                </div>
+
+                <div style={{marginTop:16, display:'flex', alignItems:'center', gap:8}}>
+                  <input type="checkbox" checked={editForm.featured} onChange={e=>setEditForm({...editForm,featured:e.target.checked})} style={{width:18, height:18, accentColor:'#E8730F'}} />
+                  <label style={{fontSize:13, fontWeight:700, color:'#0A1F12'}}>Featured / Priority Placement</label>
+                </div>
+
               </>:<>
                 <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy (comma-separated)</label><TIn value={editForm.sources} onChange={v=>setEditForm({...editForm,sources:v})}/>
                 <div style={{marginTop:12,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
@@ -2026,7 +2077,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
              ) : (
                <div className="table-wrap" style={{border:0,borderRadius:0}}>
                 <table className="dt">
-                  <thead><tr><th>Campaign</th><th>Package</th><th>Dates</th><th>Budget</th><th>Impressions</th><th>Clicks</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Campaign</th><th>Package</th><th>Dates</th><th>Budget</th><th>Impressions</th><th>Clicks</th><th>Status</th><th>Report</th></tr></thead>
                   <tbody>
                     {campaigns.length > 0 ? campaigns.map((c,i)=>(
                       <tr key={c.id || i}>
@@ -2037,9 +2088,12 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                         <td className="muted">{c.impressions||0}</td>
                         <td className="muted">{c.clicks||0}</td>
                         <td><span className="chip">Active</span></td>
+                        <td>
+                          <button onClick={() => alert(`Campaign Report\n\nName: ${c.name}\nPackage: ${c.package}\nSponsorship: ${c.sponsorship ? 'Yes' : 'No'}\nImpressions: ${c.impressions || 0}\nClicks: ${c.clicks || 0}\nLeads: ${c.leads || 0}`)} style={{background:'rgba(232,115,15,.1)', border:'1px solid rgba(232,115,15,.3)', color:'#E8730F', padding:'4px 8px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer'}}>View</button>
+                        </td>
                       </tr>
                     )) : (
-                      <tr><td colSpan="7" style={{textAlign:'center',padding:'30px',color:'rgba(10,31,18,.5)'}}>No campaigns yet.</td></tr>
+                      <tr><td colSpan="8" style={{textAlign:'center',padding:'30px',color:'rgba(10,31,18,.5)'}}>No campaigns yet.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -2138,7 +2192,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
 /* ═══════════════════ CHECKOUT FLOW ═══════════════════ */
 function CheckoutFlow({service, client, onSuccess, onCancel}) {
-  const [step, setStep] = useState('review'); // 'review' | 'payment' | 'done'
+  const [step, setStep] = useState('review');
   
   const handlePaymentSubmit = () => {
     setStep('done');
@@ -2330,7 +2384,7 @@ function CreateCampaignModal({onClose, onSave}) {
   const plus30 = new Date(Date.now()+30*86400000).toISOString().slice(0,10);
   const [form, setForm] = useState({
     name:'', package:'Sponsored', budget:'K455',
-    startDate: today, endDate: plus30, goal:''
+    startDate: today, endDate: plus30, goal:'', sponsorship: false
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -2369,6 +2423,12 @@ function CreateCampaignModal({onClose, onSave}) {
         <input type="date" value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})} style={INP_STYLE}/>
       </div>
     </div>
+    <div style={{marginTop:14}}>
+      <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:700}}>
+        <input type="checkbox" checked={form.sponsorship || false} onChange={e=>setForm({...form, sponsorship: e.target.checked})} style={{width:18, height:18, accentColor:'#E8730F'}} />
+        Include Category Sponsorship
+      </label>
+    </div>
     <div style={{display:'flex', gap:10, marginTop:22, flexWrap:'wrap'}}>
       <button onClick={submit} disabled={submitting} style={{flex:'1 1 180px', padding:'14px', background:submitting?'#ccc':'linear-gradient(135deg,#E8730F,#F5A623)', color:'#fff', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:submitting?'wait':'pointer'}}>{submitting?'Creating…':'Create Campaign'}</button>
       <button onClick={onClose} style={{padding:'14px 22px', background:'#fff', border:'1px solid rgba(10,31,18,.15)', borderRadius:8, fontSize:14, fontWeight:600, color:'#0A1F12'}}>Cancel</button>
@@ -2380,7 +2440,7 @@ function CreateListingModal({onClose, onSave, profile}) {
   const [form, setForm] = useState({
     title:'', category: profile?.category || 'clothing', description:'',
     price:'', unit:'', moq: profile?.moq || '', leadTime: profile?.leadTime || '',
-    delivery: profile?.delivery || '', stock: 'In stock'
+    delivery: profile?.delivery || '', stock: 'In stock', promoted: false
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -2415,6 +2475,13 @@ function CreateListingModal({onClose, onSave, profile}) {
         <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Description *</label>
         <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={3} style={{...INP_STYLE, resize:'vertical', fontFamily:'inherit'}}/>
       </div>
+    </div>
+
+    <div style={{marginTop:14}}>
+      <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, fontWeight:700}}>
+        <input type="checkbox" checked={form.promoted || false} onChange={e=>setForm({...form, promoted: e.target.checked})} style={{width:18, height:18, accentColor:'#E8730F'}} />
+        Promote this listing (Featured in search results)
+      </label>
     </div>
 
     <div style={{display:'flex', gap:10, marginTop:22, flexWrap:'wrap'}}>
@@ -2532,12 +2599,21 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
 
   const filteredSuppliers=useMemo(()=>{
     const q=query.trim().toLowerCase();
-    return suppliers.filter(s=>{
+    const results = suppliers.filter(s=>{
       if(category!=='all'&&s.category!==category) return false;
       if(city==='__intl'){ if(!isInternationalEntity(s)) return false; }
       else if(city!=='all'&&s.location!==city) return false;
       if(!q) return true;
       return (s.name+' '+s.location+' '+(s.country||'')+' '+(s.desc||'')+' '+(s.products||[]).join(' ')).toLowerCase().includes(q);
+    });
+    
+    // Sort by featured first, then verified
+    return results.sort((a, b) => {
+      if (a.featured && !b.featured) return -1;
+      if (!a.featured && b.featured) return 1;
+      if (a.verified && !b.verified) return -1;
+      if (!a.verified && b.verified) return 1;
+      return 0;
     });
   },[suppliers,query,category,city]);
 
@@ -2593,6 +2669,7 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
                 <div style={{fontSize:13.5,fontWeight:800,color:'#0A1F12', display:'flex', alignItems:'center'}}>
                   {s.name}
                   {s.verified && <VerifiedBadge size={14} />}
+                  {s.featured && <span style={{background:'#E8730F', color:'#fff', fontSize:9, padding:'2px 4px', borderRadius:4, marginLeft:4, fontWeight:800}}>PRO</span>}
                 </div>
                 <div style={{fontSize:11,color:'rgba(10,31,18,.55)'}}><i className="fas fa-location-dot" style={{marginRight:4,fontSize:9}}></i>{locLabel(s)}</div>
               </div>
@@ -2650,6 +2727,7 @@ function SupplierProfileModal({supplier,user,onClose,onRequestQuote}){
         <h2 className="serif" style={{fontSize:'clamp(1.4rem,3vw,1.75rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 4px', display:'flex', alignItems:'center'}}>
           {supplier.name}
           {supplier.verified && <VerifiedBadge size={22} />}
+          {supplier.featured && <span style={{background:'#E8730F', color:'#fff', fontSize:10, padding:'2px 6px', borderRadius:4, marginLeft:8, fontWeight:800, textTransform:'uppercase'}}>Premium</span>}
         </h2>
         <div style={{fontSize:13,color:'rgba(10,31,18,.6)'}}><i className="fas fa-location-dot" style={{marginRight:5}}></i>{locLabel(supplier)}</div>
       </div>
@@ -2660,10 +2738,26 @@ function SupplierProfileModal({supplier,user,onClose,onRequestQuote}){
       International supplier — import duties, customs clearance and international freight are separate and not included in supplier quotes.
     </div>}
     <p style={{fontSize:14,lineHeight:1.7,color:'rgba(10,31,18,.75)',marginBottom:16}}>{supplier.desc}</p>
+    
+    {supplier.website && <div style={{marginBottom:16}}>
+      <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Website</div>
+      <a href={supplier.website} target="_blank" rel="noopener noreferrer" style={{color:'#E8730F', fontWeight:700, textDecoration:'none'}}>{supplier.website}</a>
+    </div>}
+
+    {supplier.photos && <div style={{marginBottom:16}}>
+      <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Photos</div>
+      <div style={{display:'flex', overflowX:'auto', gap:8}}>
+        {supplier.photos.split(',').map((url, i) => url.trim() && (
+          <img key={i} src={url.trim()} alt="Additional" style={{height:100, borderRadius:8, objectFit:'cover'}} />
+        ))}
+      </div>
+    </div>}
+
     {supplier.products&&<div style={{marginBottom:16}}>
       <div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Products</div>
       <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{supplier.products.map((p,i)=><span key={i} style={{fontSize:12.5,color:'rgba(10,31,18,.75)',background:'#fff',border:'1px solid rgba(10,31,18,.1)',padding:'6px 12px',borderRadius:99,fontWeight:600}}>{p}</span>)}</div>
     </div>}
+    
     <div style={{display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',marginBottom:18}}>
       {supplier.moq&&<div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:9,padding:'12px 14px'}}><div style={{fontSize:10,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:4}}>MOQ</div><div style={{fontSize:13,fontWeight:700,color:'#0A1F12'}}>{supplier.moq}</div></div>}
       {supplier.leadTime&&<div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:9,padding:'12px 14px'}}><div style={{fontSize:10,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:4}}>Lead time</div><div style={{fontSize:13,fontWeight:700,color:'#0A1F12'}}>{supplier.leadTime}</div></div>}
@@ -2792,7 +2886,7 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
   const [resetSent,setResetSent]=useState(false);
   const [resetEmail,setResetEmail]=useState('');
   const [signupSuccess,setSignupSuccess]=useState(false);
-  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:''});
+  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:'',website:'',photos:''});
 
   useEffect(()=>{
     if(open){
@@ -2980,6 +3074,9 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Minimum order</label><TIn value={form.moq} onChange={v=>setForm({...form,moq:v})} placeholder="e.g. 50 metres"/></div>
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Lead time</label><TIn value={form.leadTime} onChange={v=>setForm({...form,leadTime:v})} placeholder="e.g. 3–5 days"/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Delivery coverage</label><TIn value={form.delivery} onChange={v=>setForm({...form,delivery:v})}/></div>
+          
+          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={form.website} onChange={v=>setForm({...form,website:v})} placeholder="https://..."/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (URLs)</label><TIn value={form.photos} onChange={v=>setForm({...form,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
         </div>
       </div>}
       {role==='buyer'&&<div style={{background:'rgba(232,115,15,.04)',border:'1px dashed rgba(232,115,15,.25)',borderRadius:10,padding:'14px 16px',marginBottom:14}}>
@@ -3232,7 +3329,6 @@ function App(){
   const [rfqType,setRfqType]=useState('quote');
   const [justSignedUp,setJustSignedUp]=useState(false);
   
-  // Global Spotlight Modal State
   const [spotlightModalOpen, setSpotlightModalOpen] = useState(false);
 
   useEffect(()=>{
@@ -3251,7 +3347,6 @@ function App(){
     const onHash=()=>setHash(window.location.hash);
     window.addEventListener('hashchange',onHash);
     
-    // Global listener for opening spotlight modal from anywhere
     const openSpotlight = () => handleOpenSpotlight();
     window.addEventListener('open-spotlight', openSpotlight);
 
@@ -3285,13 +3380,11 @@ function App(){
       return;
     }
     
-    // Check if user is verified (either from profile or local sub)
     const subs = getSubs(user.uid);
     const isVerified = profile?.status === 'verified' || subs.verified;
 
     if (!isVerified) {
       toast('Verification required to post a Spotlight.', 'error');
-      // Redirect to dashboard where they can pay for verification
       goDashboard();
       setTimeout(()=>{
         window.dispatchEvent(new CustomEvent('nav-tab', {detail: 'profile'}));
@@ -3308,8 +3401,6 @@ function App(){
       throw new Error("Session expired");
     }
 
-    // Explicitly map every single field — no spreads, no undefined values.
-    // Firestore rejects undefined; null is fine.
     const payload = {
       title:      String(form.title   || '').trim(),
       content:    String(form.content || '').trim(),
@@ -3331,7 +3422,6 @@ function App(){
       goSpotlights();
     } catch (e) {
       console.error("Firestore error:", e);
-      // Print the EXACT error to the screen
       const exactError = [e && e.code, e && e.message].filter(Boolean).join(': ') || 'Unknown error';
       alert('DATABASE ERROR — Failed to save spotlight:\n\n' + exactError);
       throw e;
