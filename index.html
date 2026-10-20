@@ -216,19 +216,23 @@ td .row{gap:.4rem}
 <body>
 <div id="root"></div>
 <div class="toast-root" id="toastRoot" aria-live="polite" style="position:fixed;bottom:1.4rem;right:1.4rem;z-index:9999;display:grid;gap:.6rem;max-width:min(380px,calc(100vw - 2rem))"></div>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js" crossorigin="anonymous"></script>
+
+<script>
 // Capture ref from URL
 (function(){
   try{
     var p = new URLSearchParams(location.search);
     var c = p.get('ref');
-    if(c && /^SE-[A-Z0-9-]{3,32}$/i.test(c)){
+    if(c && /^SE-[A-Z0-9]{3,32}$/.test(c.toUpperCase())){
       localStorage.setItem('starteasy.ref.v1', JSON.stringify({code: c.toUpperCase(), at: Date.now()}));
     }
   }catch(e){}
 })();
+</script>
+
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 
