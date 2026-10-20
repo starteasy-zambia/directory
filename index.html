@@ -74,7 +74,8 @@ td .row{gap:.4rem}
 .acct{position:relative}
 .acct-btn{display:flex;align-items:center;gap:.55rem;background:#fff;border:1px solid rgba(10,31,18,.15);border-radius:12px;padding:.34rem .6rem .34rem .34rem;cursor:pointer;font-weight:700;font-size:.85rem;transition:.15s; min-height:44px;color:#0A1F12; font-family:inherit;}
 .acct-btn:hover{border-color:#E8730F}
-.avatar{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:rgba(232,115,15,.15);color:#E8730F;font-weight:800;font-size:.78rem;flex-shrink:0}
+.avatar{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:rgba(232,115,15,.15);color:#E8730F;font-weight:800;font-size:.78rem;flex-shrink:0; overflow:hidden;}
+.avatar img{width:100%; height:100%; object-fit:cover;}
 .avatar.lg{width:56px;height:56px;border-radius:15px;font-size:1.15rem}
 .acct-menu{position:absolute;right:0;top:calc(100% + 9px);min-width:232px;background:#fff;border:1px solid rgba(10,31,18,.1);border-radius:14px;box-shadow:0 20px 40px -15px rgba(10,31,18,.3);padding:.45rem;display:none;z-index:80}
 .acct-menu.open{display:block;animation:pop .16s ease}
@@ -131,7 +132,7 @@ td .row{gap:.4rem}
 /* Spotlight Feed Styles */
 .spotlight-card { background:#fff; border:1px solid rgba(10,31,18,.08); border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 2px 8px rgba(10,31,18,.04); }
 .spotlight-header { display:flex; gap:12px; align-items:center; margin-bottom:14px; }
-.spotlight-avatar { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex-shrink:0; }
+.spotlight-avatar { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px; flex-shrink:0; overflow:hidden; }
 .spotlight-body { font-size:14.5px; line-height:1.65; color:rgba(10,31,18,.85); white-space:pre-wrap; margin-bottom:12px; }
 .spotlight-media { width:100%; max-height:400px; object-fit:cover; border-radius:8px; margin-bottom:12px; border:1px solid rgba(10,31,18,.05); }
 .spotlight-footer { border-top:1px solid rgba(10,31,18,.08); padding-top:8px; margin-top:8px; display:flex; justify-content:space-between; }
@@ -142,7 +143,7 @@ td .row{gap:.4rem}
 .comment-input:focus { border-color:#E8730F; }
 .comments-list { margin-top:12px; display:flex; flex-direction:column; gap:10px; }
 .comment-item { display:flex; gap:10px; align-items:flex-start; }
-.comment-avatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; flex-shrink:0; }
+.comment-avatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; flex-shrink:0; overflow:hidden; }
 .comment-content { background:#F8FAF6; padding:8px 12px; border-radius:0 12px 12px 12px; flex:1; }
 .comment-author { font-size:12px; font-weight:800; color:#0A1F12; margin-bottom:2px; }
 .comment-text { font-size:13px; color:rgba(10,31,18,.75); line-height:1.4; }
@@ -359,7 +360,9 @@ async function authSignUp(form){
       name:form.name,businessName:form.businessName,phone:form.phone,email:form.email,
       role:form.role,category:form.category,location:form.location,
       country:form.country||'Zambia',scope:form.scope||'local',
-      status:'pending',createdAt:Date.now()
+      status:'pending',createdAt:Date.now(),
+      profilePhoto: form.profilePhoto || '',
+      coverPhoto: form.coverPhoto || ''
     };
     if(form.role==='supplier'){
       profile.products=splitCSV(form.products);
@@ -649,7 +652,9 @@ function Nav({user,profile,onSignIn,onSignUp,onDashboard,onBrowse,onSpotlights,o
           {user && (
             <div className="acct" ref={acctRef}>
               <button className="acct-btn" onClick={()=>setAcctOpen(!acctOpen)} style={{background:'rgba(255,255,255,.08)',borderColor:'rgba(255,255,255,.2)',color:'#fff'}}>
-                <span className="avatar" style={{background:'#E8730F',color:'#fff'}}>{initials(profile?.name || user.email)}</span>
+                <span className="avatar" style={{background:'#E8730F',color:'#fff'}}>
+                  {profile?.profilePhoto ? <img src={profile.profilePhoto} alt="User" /> : initials(profile?.name || user.email)}
+                </span>
                 <span className="acct-name">{(profile?.name || user.email).split(' ')[0]}</span>
                 <i className={`fas fa-chevron-down`} style={{fontSize:10, marginLeft:4, color:'rgba(255,255,255,.5)'}}></i>
               </button>
@@ -1221,7 +1226,7 @@ function SpotlightCard({ post, user, onComment }) {
     <div className="spotlight-card">
       <div className="spotlight-header">
         <div className="spotlight-avatar" style={{ background: 'rgba(232,115,15,.1)', color: '#E8730F' }}>
-          {initials(post.businessName)}
+          {post.profilePhoto ? <img src={post.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : initials(post.businessName)}
         </div>
         <div style={{flex:1, minWidth:0}}>
           <div style={{display:'flex', alignItems:'center', gap:2}}>
@@ -1499,7 +1504,8 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         regNo:p.regNo||'', docsUrl:p.docsUrl||'', refs:p.refs||'',
         featured:p.featured||false,
         sources:Array.isArray(p.sources)?p.sources.join(', '):(p.sources||''),
-        frequency:p.frequency||'Monthly',orderValue:p.orderValue||''
+        frequency:p.frequency||'Monthly',orderValue:p.orderValue||'',
+        profilePhoto:p.profilePhoto||'', coverPhoto:p.coverPhoto||''
       });
       
       const storedSubs = getSubs(user.uid);
@@ -1554,7 +1560,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
     setSaving(true);setSaveMsg(null);
     try{
       const isSupplier=profile.role==='supplier';
-      const updates={name:editForm.name.trim(),businessName:editForm.businessName.trim(),phone:editForm.phone.trim(),category:editForm.category,location:editForm.location,country:editForm.country||'Zambia',scope:editForm.scope||'local'};
+      const updates={name:editForm.name.trim(),businessName:editForm.businessName.trim(),phone:editForm.phone.trim(),category:editForm.category,location:editForm.location,country:editForm.country||'Zambia',scope:editForm.scope||'local', profilePhoto: editForm.profilePhoto, coverPhoto: editForm.coverPhoto};
       if(isSupplier){
         updates.products=splitCSV(editForm.products);
         updates.moq=editForm.moq;
@@ -1921,6 +1927,8 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 </div>
 
                 <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
+                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={editForm.profilePhoto} onChange={v=>setEditForm({...editForm,profilePhoto:v})} placeholder="https://..."/></div>
+                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Cover Image URL</label><TIn value={editForm.coverPhoto} onChange={v=>setEditForm({...editForm,coverPhoto:v})} placeholder="https://..."/></div>
                   <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={editForm.website} onChange={v=>setEditForm({...editForm,website:v})} placeholder="https://..."/></div>
                   <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (Comma-separated URLs)</label><TIn value={editForm.photos} onChange={v=>setEditForm({...editForm,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
                 </div>
@@ -1941,6 +1949,9 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 </div>
 
               </>:<>
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))', marginBottom:16}}>
+                  <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={editForm.profilePhoto} onChange={v=>setEditForm({...editForm,profilePhoto:v})} placeholder="https://..."/></div>
+                </div>
                 <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy (comma-separated)</label><TIn value={editForm.sources} onChange={v=>setEditForm({...editForm,sources:v})}/>
                 <div style={{marginTop:12,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
                   <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Frequency</label>
@@ -2567,7 +2578,7 @@ function WelcomeRow({k,v}){
 function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
   const [suppliers,setSuppliers]=useState([]);
   const [buyers,setBuyers]=useState([]);
-  const [listings,setListings]=useState([]); // NEW: Listings for public view
+  const [listings,setListings]=useState([]); 
   const [loading,setLoading]=useState(true);
   const [tab,setTab]=useState('suppliers');
   const [query,setQuery]=useState('');
@@ -2687,7 +2698,9 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
           const isSaved=saved.includes(s.id);
           return <div key={s.id} style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:14,padding:'18px',display:'flex',flexDirection:'column',gap:10,borderTop:`3px solid ${cat.color}`}}>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <span style={{width:40,height:40,borderRadius:10,background:cat.color+'15',color:cat.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}><i className={`fas ${cat.icon}`}></i></span>
+              <span style={{width:40,height:40,borderRadius:10,background:cat.color+'15',color:cat.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0, overflow:'hidden'}}>
+                {s.profilePhoto ? <img src={s.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <i className={`fas ${cat.icon}`}></i>}
+              </span>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,fontWeight:800,color:'#0A1F12', display:'flex', alignItems:'center'}}>
                   {s.name}
@@ -2707,7 +2720,9 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
         }):tab==='buyers'?filteredBuyers.map(b=>(
           <div key={b.id} style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:14,padding:'18px',display:'flex',flexDirection:'column',gap:10,borderTop:'3px solid #E8730F'}}>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <span style={{width:40,height:40,borderRadius:10,background:'rgba(232,115,15,.15)',color:'#E8730F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0}}><i className="fas fa-cart-shopping"></i></span>
+              <span style={{width:40,height:40,borderRadius:10,background:'rgba(232,115,15,.15)',color:'#E8730F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0, overflow:'hidden'}}>
+                {b.profilePhoto ? <img src={b.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <i className="fas fa-cart-shopping"></i>}
+              </span>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:13.5,fontWeight:800,color:'#0A1F12', display:'flex', alignItems:'center'}}>
                   {b.name}
@@ -2754,9 +2769,16 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
     toast(next.includes(supplier.id)?'Saved to your dashboard.':'Removed from saved.', 'success');
   };
   return <Modal open={true} onClose={onClose} eyebrow={cat.title} maxWidth="44rem">
-    <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:16}}>
-      <span style={{width:64,height:64,borderRadius:15,background:cat.color+'16',color:cat.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0}}><i className={`fas ${cat.icon}`}></i></span>
-      <div style={{flex:1,minWidth:0}}>
+    
+    {supplier.coverPhoto && (
+      <div style={{height:120, backgroundImage:`url(${supplier.coverPhoto})`, backgroundSize:'cover', backgroundPosition:'center', borderRadius:'12px 12px 0 0', marginTop:'-24px', marginLeft:'-28px', marginRight:'-28px', marginBottom:'16px'}} />
+    )}
+
+    <div style={{display:'flex',alignItems:'flex-start',gap:14,marginBottom:16, marginTop: supplier.coverPhoto ? '-50px' : '0', position:'relative', zIndex:10, padding: supplier.coverPhoto ? '0 10px' : '0'}}>
+      <span style={{width:64,height:64,borderRadius:15,background:cat.color+'16',color:cat.color,display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0, overflow:'hidden', border:'3px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)'}}>
+        {supplier.profilePhoto ? <img src={supplier.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <i className={`fas ${cat.icon}`}></i>}
+      </span>
+      <div style={{flex:1,minWidth:0, paddingTop: supplier.coverPhoto ? '40px' : '0'}}>
         <h2 className="serif" style={{fontSize:'clamp(1.4rem,3vw,1.75rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 4px', display:'flex', alignItems:'center'}}>
           {supplier.name}
           {supplier.verified && <VerifiedBadge size={22} />}
@@ -2764,7 +2786,7 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
         </h2>
         <div style={{fontSize:13,color:'rgba(10,31,18,.6)'}}><i className="fas fa-location-dot" style={{marginRight:5}}></i>{locLabel(supplier)}</div>
       </div>
-      <button onClick={toggleSave} style={{background:isSaved?'#E8730F':'#fff',border:'1px solid '+(isSaved?'#E8730F':'rgba(10,31,18,.15)'),color:isSaved?'#fff':'rgba(10,31,18,.4)',width:36,height:36,borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0}} title={isSaved?'Saved':'Save'}><i className="fas fa-bookmark" style={{fontSize:13}}></i></button>
+      <button onClick={toggleSave} style={{background:isSaved?'#E8730F':'#fff',border:'1px solid '+(isSaved?'#E8730F':'rgba(10,31,18,.15)'),color:isSaved?'#fff':'rgba(10,31,18,.4)',width:36,height:36,borderRadius:9,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',flexShrink:0, marginTop: supplier.coverPhoto ? '40px' : '0'}} title={isSaved?'Saved':'Save'}><i className="fas fa-bookmark" style={{fontSize:13}}></i></button>
     </div>
     {isInternationalEntity(supplier)&&<div style={{background:'rgba(27,108,168,.06)',border:'1px dashed rgba(27,108,168,.3)',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:11.5,lineHeight:1.6,color:'rgba(10,31,18,.7)'}}>
       <i className="fas fa-globe" style={{color:'#1B6CA8',marginRight:6}}></i>
@@ -2817,11 +2839,20 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
 
 function BuyerProfileModal({buyer,onClose,onRequestIntro}){
   return <Modal open={true} onClose={onClose} eyebrow="Buyer profile" maxWidth="42rem">
-    <h2 className="serif" style={{fontSize:'clamp(1.4rem,3vw,1.75rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 6px', display:'flex', alignItems:'center'}}>
-      {buyer.name}
-      {buyer.verified && <VerifiedBadge size={22} />}
-    </h2>
-    <div style={{fontSize:13,color:'rgba(10,31,18,.6)',marginBottom:14}}><i className="fas fa-location-dot" style={{marginRight:5}}></i>{locLabel(buyer)}</div>
+    
+    <div style={{display:'flex', alignItems:'center', gap:14, marginBottom:16}}>
+      <span style={{width:64,height:64,borderRadius:15,background:'rgba(232,115,15,.15)',color:'#E8730F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0, overflow:'hidden', border:'3px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)'}}>
+        {buyer.profilePhoto ? <img src={buyer.profilePhoto} alt="Profile" style={{width:'100%', height:'100%', objectFit:'cover'}} /> : <i className="fas fa-cart-shopping"></i>}
+      </span>
+      <div>
+        <h2 className="serif" style={{fontSize:'clamp(1.4rem,3vw,1.75rem)',lineHeight:1.15,color:'#0A1F12',margin:'0 0 4px', display:'flex', alignItems:'center'}}>
+          {buyer.name}
+          {buyer.verified && <VerifiedBadge size={22} />}
+        </h2>
+        <div style={{fontSize:13,color:'rgba(10,31,18,.6)'}}><i className="fas fa-location-dot" style={{marginRight:5}}></i>{locLabel(buyer)}</div>
+      </div>
+    </div>
+
     {isInternationalEntity(buyer)&&<div style={{background:'rgba(27,108,168,.06)',border:'1px dashed rgba(27,108,168,.3)',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:11.5,lineHeight:1.6,color:'rgba(10,31,18,.7)'}}>
       <i className="fas fa-globe" style={{color:'#1B6CA8',marginRight:6}}></i>
       This buyer sources internationally — duties and clearance are handled separately.
@@ -2934,7 +2965,7 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
   const [resetSent,setResetSent]=useState(false);
   const [resetEmail,setResetEmail]=useState('');
   const [signupSuccess,setSignupSuccess]=useState(false);
-  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:'',website:'',photos:''});
+  const [form,setForm]=useState({name:'',businessName:'',email:'',phone:'',password:'',category:'',location:'',country:'Zambia',scope:'local',products:'',moq:'',delivery:'',leadTime:'',sources:'',frequency:'Monthly',orderValue:'',website:'',photos:'',profilePhoto:'',coverPhoto:''});
 
   useEffect(()=>{
     if(open){
@@ -3123,6 +3154,8 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Lead time</label><TIn value={form.leadTime} onChange={v=>setForm({...form,leadTime:v})} placeholder="e.g. 3–5 days"/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Delivery coverage</label><TIn value={form.delivery} onChange={v=>setForm({...form,delivery:v})}/></div>
           
+          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={form.profilePhoto} onChange={v=>setForm({...form,profilePhoto:v})} placeholder="https://..."/></div>
+          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Cover Image URL</label><TIn value={form.coverPhoto} onChange={v=>setForm({...form,coverPhoto:v})} placeholder="https://..."/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Website Link</label><TIn value={form.website} onChange={v=>setForm({...form,website:v})} placeholder="https://..."/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Additional Photos (URLs)</label><TIn value={form.photos} onChange={v=>setForm({...form,photos:v})} placeholder="https://img1.jpg, https://img2.jpg"/></div>
         </div>
@@ -3130,6 +3163,7 @@ function AuthModal({open,initialMode='signup',initialRole='buyer',onClose,onAuth
       {role==='buyer'&&<div style={{background:'rgba(232,115,15,.04)',border:'1px dashed rgba(232,115,15,.25)',borderRadius:10,padding:'14px 16px',marginBottom:14}}>
         <div style={{fontSize:10.5,textTransform:'uppercase',fontWeight:800,color:'#8A6828',marginBottom:10}}>What you buy</div>
         <div style={{display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
+          <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Profile Image URL</label><TIn value={form.profilePhoto} onChange={v=>setForm({...form,profilePhoto:v})} placeholder="https://..."/></div>
           <div style={{gridColumn:'1/-1'}}><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy * (comma-separated)</label><TIn value={form.sources} onChange={v=>setForm({...form,sources:v})} placeholder="e.g. Fresh vegetables, chicken"/></div>
           <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Frequency</label>
             <select value={form.frequency} onChange={e=>setForm({...form,frequency:e.target.value})} style={{...INP_STYLE,cursor:'pointer'}}>
@@ -3459,6 +3493,7 @@ function App(){
       businessName: String(profile.businessName || profile.name || 'Unknown'),
       category:   String(profile.category || 'General'),
       role:       String(profile.role || 'buyer'),
+      profilePhoto: profile.profilePhoto || null,
       createdAt:  Date.now(),
       comments:   []
     };
