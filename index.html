@@ -254,7 +254,7 @@ function toast(msg, type='success'){
   el.style.cssText = `display:flex;align-items:flex-start;gap:.65rem;background:${type==='error'?'#B8564F':type==='info'?'#1B6CA8':'#1E7B3C'};color:#fff;padding:.85rem 1rem;border-radius:13px;box-shadow:0 20px 40px -15px rgba(0,0,0,.3);font-size:13px;font-weight:600;animation:slidein .25s cubic-bezier(.2,.9,.3,1.2);font-family:Inter,sans-serif;`;
   el.innerHTML = `<i class="fas ${type==='error'?'fa-circle-exclamation':type==='info'?'fa-info-circle':'fa-circle-check'}" style="margin-top:2px"></i><span>${String(msg).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</span>`;
   root.appendChild(el);
-  setTimeout(() => { el.style.transition='opacity .3s, transform .3s'; el.style.opacity='0'; el.style.transform='translateX(20px)'; setTimeout(()=>el.remove(),320); }, 3600);
+  setTimeout(() => { el.style.transition='opacity .3s, transform .3s'; el.style.opacity='0'; el.style.transform='translateX(20px)'; setTimeout(()=>el.remove(),320); }, 4600);
 }
 
 function isMobile(){return typeof navigator!=='undefined'&&/android|iphone|ipad|ipod|mobile/i.test((navigator.userAgent||'').toLowerCase());}
@@ -289,14 +289,14 @@ function getSubs(uid){ return lsGet('se_subs_'+uid, {}); }
 function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 
 async function uploadImage(file, path) {
-  if(!firebaseReady || !storage) throw new Error("Firebase not ready");
-  const fileRef = storage.ref(`${path}/${Date.now()}_${file.name}`);
+  if(!firebaseReady || !storage) throw new Error("Firebase Storage not initialized");
+  const fileRef = storage.ref(`${path}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`);
   
-  // Timeout 15 seconds
+  // Extended timeout to 30s to allow slower connections to finish
   const uploadTask = fileRef.put(file);
   await Promise.race([
     uploadTask,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Check connection or file size.')), 15000))
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Check connection.')), 30000))
   ]);
   
   return await fileRef.getDownloadURL();
@@ -371,15 +371,25 @@ async function authSignUp(form){
   try{
     cred=await auth.createUserWithEmailAndPassword(form.email,form.password);
     
-    // Upload images if provided
     let profilePhotoUrl = '';
     let coverPhotoUrl = '';
-    
+
+    // Try uploading images, but don't fail the whole signup if they fail
     if (form.profileFile) {
-      profilePhotoUrl = await uploadImage(form.profileFile, 'profiles');
+      try {
+        profilePhotoUrl = await uploadImage(form.profileFile, 'profiles');
+      } catch (err) {
+        console.warn("Profile image upload failed during signup", err);
+        toast('Profile image failed to upload. You can add it later.', 'error');
+      }
     }
     if (form.role === 'supplier' && form.coverFile) {
-      coverPhotoUrl = await uploadImage(form.coverFile, 'covers');
+      try {
+        coverPhotoUrl = await uploadImage(form.coverFile, 'covers');
+      } catch (err) {
+        console.warn("Cover image upload failed during signup", err);
+        toast('Cover image failed to upload. You can add it later.', 'error');
+      }
     }
 
     const profile={
@@ -390,6 +400,7 @@ async function authSignUp(form){
       profilePhoto: profilePhotoUrl,
       coverPhoto: coverPhotoUrl
     };
+    
     if(form.role==='supplier'){
       profile.products=splitCSV(form.products);
       profile.moq=form.moq||'Contact supplier';
@@ -403,6 +414,7 @@ async function authSignUp(form){
       profile.frequency=form.frequency||'Monthly';
       profile.orderValue=form.orderValue||'Contact buyer';
     }
+    
     await db.collection('se_users').doc(cred.user.uid).set(profile);
     return { email: form.email };
   } finally {
@@ -646,37 +658,50 @@ function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' })
     <div>
       <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>{label}</label>
       
-      <div 
-        onClick={() => fileInputRef.current && fileInputRef.current.click()}
-        style={{
-          width: aspectRatio === '3/1' ? '100%' : 80,
-          height: aspectRatio === '3/1' ? 80 : 80,
-          borderRadius: aspectRatio === '3/1' ? 8 : '50%',
-          background: '#E5E7EB',
-          border: '2px dashed #9CA3AF',
-          cursor: 'pointer',
-          position: 'relative',
-          overflow: 'hidden',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0
-        }}
-      >
-        {preview ? (
-          <img src={preview} alt="Preview" style={{width:'100%', height:'100%', objectFit:'cover'}} />
-        ) : (
-          <div style={{textAlign:'center', color:'#6B7280'}}>
-            <i className="fas fa-camera" style={{fontSize: 24, marginBottom: 4}}></i>
-            <div style={{fontSize: 10, fontWeight: 600}}>Upload</div>
-          </div>
-        )}
-        
-        {/* Hover overlay */}
-        <div style={{position:'absolute', inset:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center', opacity: 0, transition: 'opacity 0.2s'}}
-             onMouseEnter={e => e.currentTarget.style.opacity = 1}
-             onMouseLeave={e => e.currentTarget.style.opacity = 0}>
-          <i className="fas fa-pen" style={{color: '#fff', fontSize: 20}}></i>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {/* Preview Circle/Rectangle */}
+        <div 
+          style={{
+            width: aspectRatio === '3/1' ? 120 : 80,
+            height: 80,
+            borderRadius: aspectRatio === '3/1' ? 8 : '50%',
+            background: '#E5E7EB',
+            border: '2px solid #D1D5DB',
+            position: 'relative',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0
+          }}
+        >
+          {preview ? (
+            <img src={preview} alt="Preview" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+          ) : (
+            <div style={{textAlign:'center', color:'#9CA3AF'}}>
+              <i className="fas fa-camera" style={{fontSize: 24}}></i>
+            </div>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button 
+            type="button"
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            style={{ padding:'8px 16px', background:'#fff', border:'1px solid rgba(10,31,18,.2)', borderRadius:6, fontSize:12, fontWeight:700, color:'#0A1F12', cursor:'pointer' }}
+          >
+            Choose Image
+          </button>
+          {preview && (
+            <button 
+              type="button"
+              onClick={() => { setPreview(''); onFileSelect(null); if(fileInputRef.current) fileInputRef.current.value = ''; }}
+              style={{ padding:'6px 16px', background:'transparent', border:'none', fontSize:11.5, fontWeight:600, color:'#B8564F', cursor:'pointer' }}
+            >
+              Remove
+            </button>
+          )}
         </div>
       </div>
 
@@ -1500,7 +1525,7 @@ function CreateSpotlightModal({ onClose, onSave, profile }) {
         const uploadTask = fileRef.put(file);
         await Promise.race([
           uploadTask,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out')), 10000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out')), 30000))
         ]);
         mediaUrl = await fileRef.getDownloadURL();
         mediaType = file.type.startsWith('video') ? 'video' : 'image';
@@ -1658,17 +1683,32 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
       
       let finalProfilePhoto = editForm.profilePhoto;
       let finalCoverPhoto = editForm.coverPhoto;
+      let uploadFailed = false;
 
-      // Upload new images if selected
+      // 1. Try to upload images independently
       if (profileFile) {
-        toast('Uploading profile photo...', 'info');
-        finalProfilePhoto = await uploadImage(profileFile, 'profiles');
+        try {
+          toast('Uploading profile photo...', 'info');
+          finalProfilePhoto = await uploadImage(profileFile, 'profiles');
+        } catch (e) {
+          console.warn("Profile image upload failed", e);
+          toast('Profile photo upload failed. Other details will still be saved.', 'error');
+          uploadFailed = true;
+        }
       }
+      
       if (coverFile) {
-        toast('Uploading cover photo...', 'info');
-        finalCoverPhoto = await uploadImage(coverFile, 'covers');
+        try {
+          toast('Uploading cover photo...', 'info');
+          finalCoverPhoto = await uploadImage(coverFile, 'covers');
+        } catch (e) {
+          console.warn("Cover image upload failed", e);
+          toast('Cover photo upload failed. Other details will still be saved.', 'error');
+          uploadFailed = true;
+        }
       }
 
+      // 2. Prepare the text data payload regardless of image success
       const updates={
         name:editForm.name.trim(),
         businessName:editForm.businessName.trim(),
@@ -1698,20 +1738,25 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         updates.frequency=editForm.frequency;
         updates.orderValue=editForm.orderValue;
       }
+
+      // 3. Save text data to Firestore
       if(firebaseReady) await db.collection('se_users').doc(user.uid).update(updates);
       
+      // 4. Update local state
       const updatedProfile = {...profile,...updates};
       setProfile(updatedProfile);
       setEditForm(prev => ({...prev, profilePhoto: finalProfilePhoto, coverPhoto: finalCoverPhoto}));
+      
+      // Clear the file selectors so they don't re-upload on next save
       setProfileFile(null);
       setCoverFile(null);
       
-      setSaveMsg({kind:'ok',msg:'Profile saved successfully.'});
-      toast('Profile saved successfully.', 'success');
-      setTimeout(()=>setSaveMsg(null),3000);
+      setSaveMsg({kind:'ok',msg: uploadFailed ? 'Text details saved. Images failed to upload.' : 'Profile and images saved successfully.'});
+      if(!uploadFailed) toast('Profile and images saved successfully.', 'success');
+      setTimeout(()=>setSaveMsg(null),5000);
     }catch(e){
-      setSaveMsg({kind:'err',msg:'Save failed: '+(e.message || e.code)});
-      toast('Save failed: '+(e.message || e.code), 'error');
+      setSaveMsg({kind:'err',msg:'Database save failed: '+(e.message || e.code)});
+      toast('Database save failed.', 'error');
     }
     finally{setSaving(false);}
   };
@@ -2048,7 +2093,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
             </div>
             <div style={{marginTop:16}}>
               {isSupplier?<>
-                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))'}}>
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
                   <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" />
                   <ImageUploader label="Cover Image (Wide)" currentUrl={editForm.coverPhoto} onFileSelect={setCoverFile} aspectRatio="3/1" />
                 </div>
@@ -2081,7 +2126,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                 </div>
 
               </>:<>
-                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', marginBottom:16}}>
+                <div style={{marginTop:16, display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', marginBottom:16, background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
                   <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" />
                 </div>
                 <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy (comma-separated)</label><TIn value={editForm.sources} onChange={v=>setEditForm({...editForm,sources:v})}/>
@@ -2097,7 +2142,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
             </div>
             {saveMsg&&<div style={{background:saveMsg.kind==='ok'?'rgba(30,123,60,.1)':'rgba(184,86,79,.1)',border:'1px solid '+(saveMsg.kind==='ok'?'rgba(30,123,60,.3)':'rgba(184,86,79,.3)'),borderRadius:8,padding:'10px 14px',fontSize:12.5,color:saveMsg.kind==='ok'?'#0F5C2A':'#7C2318',marginTop:14}}>{saveMsg.msg}</div>}
             <button onClick={saveProfile} disabled={saving} style={{marginTop:18,padding:'10px 22px',background:saving?'#ccc':'#0A1F12',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700, display:'flex', alignItems:'center', gap:8}}>
-              {saving ? <><i className="fas fa-spinner fa-spin"></i> Saving Profile...</> : 'Save changes'}
+              {saving ? <><i className="fas fa-spinner fa-spin"></i> Saving...</> : 'Save changes'}
             </button>
           </div>
         )}
