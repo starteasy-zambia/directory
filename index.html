@@ -225,6 +225,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 const ADMIN_WHATSAPP = '260762499581';
 const CONTACT_EMAIL = 'directory@starteasyzambia.com';
 const MAIN_PLATFORM_URL = 'https://www.starteasyzambia.com';
+const REFERRAL_URL = 'https://referral.starteasyzambia.com/';
 const SIGNATORY_NAME = 'MWABA LEWIS';
 
 const FIREBASE_CONFIG = {
@@ -291,7 +292,6 @@ function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 async function uploadImage(file, path) {
   if(!firebaseReady || !storage) throw new Error("Firebase Storage not initialized");
   
-  // Clean filename to avoid Firebase Storage errors
   const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '');
   const fileRef = storage.ref(`${path}/${Date.now()}_${safeName}`);
   
@@ -376,7 +376,6 @@ async function authSignUp(form){
     let profilePhotoUrl = '';
     let coverPhotoUrl = '';
 
-    // Try uploading images, but don't fail the whole signup if they fail
     if (form.profileFile) {
       try {
         profilePhotoUrl = await uploadImage(form.profileFile, 'profiles');
@@ -661,7 +660,6 @@ function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' })
       <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>{label}</label>
       
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        {/* Preview Circle/Rectangle */}
         <div 
           style={{
             width: aspectRatio === '3/1' ? 120 : 80,
@@ -686,7 +684,6 @@ function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1' })
           )}
         </div>
 
-        {/* Buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button 
             type="button"
@@ -833,6 +830,7 @@ function Nav({user,profile,onSignIn,onSignUp,onDashboard,onBrowse,onSpotlights,o
 
               <MenuLink href="#spotlights" onClick={onSpotlights} icon="fa-newspaper">Business Spotlight</MenuLink>
               <MenuLink href="#browse" onClick={onBrowse} icon="fa-magnifying-glass">Browse Directory</MenuLink>
+              <MenuLink href={REFERRAL_URL} icon="fa-hand-holding-dollar" style={{color:'#F5A623'}}>Referral Program</MenuLink>
               <MenuLink href="#pricing" icon="fa-tags">Pricing & Packages</MenuLink>
               <MenuLink href="#about" icon="fa-circle-info">About Us</MenuLink>
               <MenuLink href="#contact" icon="fa-envelope">Contact Us</MenuLink>
@@ -988,6 +986,7 @@ function Footer(){
         <span>Lusaka, Zambia</span>
       </div>
       <div style={{display:'flex',flexWrap:'wrap',gap:24,fontSize:12.5,color:'rgba(255,255,255,.55)',marginBottom:24}}>
+        <a href={REFERRAL_URL} style={{color:'#F5A623',textDecoration:'none',fontWeight:700}}>Referral Program</a>
         <a href="#pricing" style={{color:'inherit',textDecoration:'none'}}>Pricing</a>
         <a href="#about" style={{color:'inherit',textDecoration:'none'}}>About</a>
         <a href="#contact" style={{color:'inherit',textDecoration:'none'}}>Contact</a>
@@ -1687,7 +1686,6 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
       let finalCoverPhoto = editForm.coverPhoto;
       let uploadFailed = false;
 
-      // 1. Try to upload images independently
       if (profileFile) {
         try {
           toast('Uploading profile photo...', 'info');
@@ -1710,7 +1708,6 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         }
       }
 
-      // 2. Prepare the text data payload regardless of image success
       const updates={
         name:editForm.name.trim(),
         businessName:editForm.businessName.trim(),
@@ -1741,15 +1738,12 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
         updates.orderValue=editForm.orderValue;
       }
 
-      // 3. Save text data to Firestore
       if(firebaseReady) await db.collection('se_users').doc(user.uid).update(updates);
       
-      // 4. Update local state
       const updatedProfile = {...profile,...updates};
       setProfile(updatedProfile);
       setEditForm(prev => ({...prev, profilePhoto: finalProfilePhoto, coverPhoto: finalCoverPhoto}));
       
-      // Clear the file selectors so they don't re-upload on next save
       setProfileFile(null);
       setCoverFile(null);
       
@@ -2783,7 +2777,6 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
       setLoading(false);
     });
     
-    // Load Listings for public view
     if (firebaseReady) {
       db.collection('se_listings').get().then(snap => {
         setListings(snap.docs.map(d => ({id: d.id, ...d.data()})));
@@ -2809,7 +2802,6 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
       return (s.name+' '+s.location+' '+(s.country||'')+' '+(s.desc||'')+' '+(s.products||[]).join(' ')).toLowerCase().includes(q);
     });
     
-    // Sort by featured first, then verified
     return results.sort((a, b) => {
       if (a.featured && !b.featured) return -1;
       if (!a.featured && b.featured) return 1;
@@ -2838,7 +2830,6 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
       return (l.title + ' ' + l.description + ' ' + (l.moq||'')).toLowerCase().includes(q);
     });
     
-    // Sort by Promoted first
     return results.sort((a,b) => (b.promoted ? 1:0) - (a.promoted ? 1:0));
   },[listings,query,category]);
 
