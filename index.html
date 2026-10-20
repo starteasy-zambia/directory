@@ -219,6 +219,16 @@ td .row{gap:.4rem}
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+// Capture ref from URL
+(function(){
+  try{
+    var p = new URLSearchParams(location.search);
+    var c = p.get('ref');
+    if(c && /^SE-[A-Z0-9-]{3,32}$/i.test(c)){
+      localStorage.setItem('starteasy.ref.v1', JSON.stringify({code: c.toUpperCase(), at: Date.now()}));
+    }
+  }catch(e){}
+})();
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo, useRef } = React;
 
@@ -326,10 +336,25 @@ async function loadUserQuotes(uid){
 }
 async function addPayment(rec){
   if(!firebaseReady) return null;
-  const record = { ...rec, status: 'under_review', submittedAt: Date.now(), history: [{ status: 'under_review', at: Date.now(), note: 'Payment reference received. Awaiting officer verification.' }] };
+  
+  // Grab the saved referral code
+  let refCode = null;
+  try {
+    const raw = JSON.parse(localStorage.getItem('starteasy.ref.v1') || 'null');
+    if (raw && raw.code) refCode = raw.code;
+  } catch(e) {}
+
+  const record = { 
+    ...rec, 
+    status: 'under_review', 
+    submittedAt: Date.now(), 
+    referralCode: refCode, // Attach it here
+    history: [{ status: 'under_review', at: Date.now(), note: 'Payment reference received. Awaiting officer verification.' }] 
+  };
+  
   try { await db.collection('se_payments').doc(rec.ref).set(record); return record; }
   catch(e) { console.error('[SE] addPayment failed:', e && e.code, e && e.message); return null; }
-}
+  }
 
 async function loadUserListings(uid){
   if(!firebaseReady) return [];
