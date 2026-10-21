@@ -1383,12 +1383,13 @@ function Landing({onSignup,onSignin}){
 }
 
 /* ═══════════════════ SPOTLIGHT FEED COMPONENTS ═══════════════════ */
-function SpotlightCard({ post, user, onComment, onEdit, onDelete, onViewProfile }) {
+function SpotlightCard({ post, user, onComment, onDeleteComment, onEdit, onDelete, onViewProfile }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   
+  // RBAC: Only the post author can edit/delete the post
   const isOwner = user && post.userId === user.uid;
 
   const handleComment = async (e) => {
@@ -1426,6 +1427,8 @@ function SpotlightCard({ post, user, onComment, onEdit, onDelete, onViewProfile 
             {post.authorName} · {new Date(post.createdAt).toLocaleDateString('en-GB',{day:'numeric',month:'short', hour:'2-digit', minute:'2-digit'})}
           </div>
         </div>
+        
+        {/* RBAC Check: Only render menu if owner */}
         {isOwner && (
           <div style={{display:'flex', gap:8}}>
             <button onClick={() => onEdit(post)} title="Edit Post" style={{background:'rgba(10,31,18,.05)', border:'none', borderRadius:'50%', width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', color:'rgba(10,31,18,.6)', cursor:'pointer'}}>
@@ -1448,15 +1451,31 @@ function SpotlightCard({ post, user, onComment, onEdit, onDelete, onViewProfile 
       </div>
       {showComments && (
         <div className="comments-list">
-          {post.comments && post.comments.map(c => (
-            <div key={c.id} className="comment-item">
-              <div className="comment-avatar" style={{ background: 'rgba(27,108,168,.1)', color: '#1B6CA8' }}>{initials(c.authorName)}</div>
-              <div className="comment-content">
-                <div className="comment-author">{c.authorName}</div>
-                <div className="comment-text">{linkify(c.text)}</div>
+          {post.comments && post.comments.map(c => {
+            // RBAC Check: Post owner OR comment author can delete the comment
+            const canDeleteComment = user && (post.userId === user.uid || c.userId === user.uid);
+            
+            return (
+              <div key={c.id} className="comment-item">
+                <div className="comment-avatar" style={{ background: 'rgba(27,108,168,.1)', color: '#1B6CA8' }}>{initials(c.authorName)}</div>
+                <div className="comment-content">
+                  <div className="comment-header" style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                    <div className="comment-author">{c.authorName}</div>
+                    {canDeleteComment && (
+                      <button 
+                        onClick={() => onDeleteComment(post.id, c.id)} 
+                        title="Delete Comment"
+                        style={{background:'none', border:'none', color:'#B8564F', fontSize:'11px', cursor:'pointer', padding:'2px'}}
+                      >
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    )}
+                  </div>
+                  <div className="comment-text">{linkify(c.text)}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {user ? (
             <form onSubmit={handleComment} className="comment-box">
               <input type="text" className="comment-input" placeholder="Ask a question or enquire about this service..." value={commentText} onChange={e => setCommentText(e.target.value)} />
@@ -1575,6 +1594,23 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
     } catch (e) { console.error("Comment error:", e); toast('Failed to post comment.', 'error'); }
   };
 
+  const deleteComment = async (postId, commentId) => {
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
+    try {
+      const postRef = db.collection('se_spotlights').doc(postId);
+      const postDoc = await postRef.get();
+      if (postDoc.exists) {
+        const currentComments = postDoc.data().comments || [];
+        const updatedComments = currentComments.filter(c => c.id !== commentId);
+        await postRef.update({ comments: updatedComments });
+        toast('Comment deleted.', 'success');
+      }
+    } catch (e) {
+      console.error("Delete comment error:", e);
+      toast('Failed to delete comment.', 'error');
+    }
+  };
+
   const deletePost = async (id) => {
     if (!window.confirm("Are you sure you want to delete this spotlight? This cannot be undone.")) return;
     try {
@@ -1649,6 +1685,7 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
             post={post} 
             user={user} 
             onComment={addComment}
+            onDeleteComment={deleteComment}
             onEdit={setEditingPost}
             onDelete={deletePost}
             onViewProfile={handleViewProfile}
@@ -3018,7 +3055,22 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
       {supplier.leadTime&&<div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:9,padding:'12px 14px'}}><div style={{fontSize:10,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:4}}>Lead time</div><div style={{fontSize:13,fontWeight:700,color:'#0A1F12'}}>{supplier.leadTime}</div></div>}
       {supplier.delivery&&<div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:9,padding:'12px 14px'}}><div style={{fontSize:10,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:4}}>Delivery</div><div style={{fontSize:13,fontWeight:700,color:'#0A1F12'}}>{supplier.delivery}</div></div>}
     </div>
-    <button onClick={()=>onRequestQuote(supplier)} style={{width:'100%',padding:'14px',background:`linear-gradient(135deg,${cat.color},${cat.color}cc)`,color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700}}>Request quote</button>
+    
+    {/* PROFILE CTAs - NEW LOGIC */}
+    <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:24}}>
+        <button onClick={()=>alert('Opening internal messaging system. No contact info bypassed.')} style={{width:'100%',padding:'14px',background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+           <i className="fa-regular fa-comment-dots"></i> Send Message
+        </button>
+        
+        <button onClick={()=>onRequestQuote(supplier)} style={{width:'100%',padding:'14px',background:`linear-gradient(135deg,${cat.color},${cat.color}cc)`,color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, position:'relative'}}>
+           <i className="fa-solid fa-file-invoice-dollar"></i> Request Quote
+           <span style={{position:'absolute', right:12, background:'rgba(0,0,0,0.25)', padding:'3px 8px', borderRadius:6, fontSize:10, textTransform:'uppercase', letterSpacing:'0.05em'}}><i className="fa-solid fa-lock"></i> Premium</span>
+        </button>
+
+        <button onClick={()=>alert('Viewing supplier\'s active supply intents/stock list.')} style={{width:'100%',padding:'14px', background:'rgba(30,123,60,0.1)', color:'#1E7B3C', border:'1px solid rgba(30,123,60,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+           <i className="fa-solid fa-boxes-stacked"></i> View Supply Intent
+        </button>
+    </div>
   </Modal>;
 }
 
@@ -3036,7 +3088,22 @@ function BuyerProfileModal({buyer,onClose,onRequestIntro}){
     {isInternationalEntity(buyer)&&<div style={{background:'rgba(27,108,168,.06)',border:'1px dashed rgba(27,108,168,.3)',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:11.5,lineHeight:1.6,color:'rgba(10,31,18,.7)'}}><i className="fas fa-globe" style={{color:'#1B6CA8',marginRight:6}}></i>This buyer sources internationally — duties and clearance are handled separately.</div>}
     <p style={{fontSize:14,lineHeight:1.7,color:'rgba(10,31,18,.75)',marginBottom:16}}>{buyer.desc}</p>
     {buyer.sources&&<div style={{marginBottom:16}}><div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Sources</div><div style={{display:'flex',flexWrap:'wrap',gap:8}}>{buyer.sources.map((p,i)=><span key={i} style={{fontSize:12.5,color:'rgba(138,104,40,.9)',background:'#fff',border:'1px solid rgba(232,115,15,.25)',padding:'6px 12px',borderRadius:99,fontWeight:600}}>{p}</span>)}</div></div>}
-    <button onClick={()=>onRequestIntro(buyer)} style={{width:'100%',padding:'14px',background:'linear-gradient(135deg,#E8730F,#F5A623)',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700}}>Request introduction</button>
+    
+    {/* PROFILE CTAs - NEW LOGIC */}
+    <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:24}}>
+        <button onClick={()=>alert('Opening internal messaging system.')} style={{width:'100%',padding:'14px', background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+           <i className="fa-regular fa-comment-dots"></i> Send Message
+        </button>
+        
+        <button onClick={()=>onRequestIntro(buyer)} style={{width:'100%',padding:'14px',background:'linear-gradient(135deg,#E8730F,#F5A623)',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, position:'relative'}}>
+           <i className="fa-solid fa-handshake"></i> Request Introduction
+           <span style={{position:'absolute', right:12, background:'rgba(0,0,0,0.2)', padding:'3px 8px', borderRadius:6, fontSize:10, textTransform:'uppercase', letterSpacing:'0.05em'}}><i className="fa-solid fa-lock"></i> Premium</span>
+        </button>
+        
+        <button onClick={()=>alert('Viewing buyer\'s demand intents.')} style={{width:'100%',padding:'14px', background:'rgba(232,115,15,0.1)', color:'#E8730F', border:'1px solid rgba(232,115,15,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+           <i className="fa-solid fa-magnifying-glass-dollar"></i> View Demand Intent
+        </button>
+    </div>
   </Modal>;
 }
 
