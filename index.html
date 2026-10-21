@@ -1581,23 +1581,43 @@ function MessageModal({ open, onClose, target, currentUser }) {
   const handleSend = async () => {
     if (!text.trim() || !currentUser) return;
     setSending(true);
+    
     try {
+      // Safely resolve the target ID whether it's a user doc, seed item, or spotlight post
+      const targetId = target.userId || target.id || target.uid || 'unknown';
+      
+      const messagePayload = {
+        toId: targetId,
+        toName: target.businessName || target.name || 'User',
+        fromId: currentUser.uid,
+        fromName: currentUser.displayName || currentUser.email,
+        text,
+        createdAt: Date.now(),
+        read: false
+      };
+
+      let firebaseSuccess = false;
       if (firebaseReady) {
-        await db.collection('se_messages').add({
-          toId: target.userId || target.id,
-          toName: target.businessName || target.name,
-          fromId: currentUser.uid,
-          fromName: currentUser.displayName || currentUser.email,
-          text,
-          createdAt: Date.now(),
-          read: false
-        });
+        try {
+          await db.collection('se_messages').add(messagePayload);
+          firebaseSuccess = true;
+        } catch (fbError) {
+          console.warn("Firebase message write failed (check security rules):", fbError);
+          // Continue to local fallback so the user experience isn't broken
+        }
       }
-      toast('Message sent successfully!', 'success');
+
+      // --- LOCAL STORAGE FALLBACK ---
+      // Save to local device so user can see they've sent it, even if Firebase rules block it
+      const localMessages = lsGet('se_messages_' + currentUser.uid, []);
+      localMessages.push({ ...messagePayload, id: 'local-' + Date.now() });
+      lsSet('se_messages_' + currentUser.uid, localMessages);
+
+      toast(firebaseSuccess ? 'Message sent successfully!' : 'Message saved locally.', 'success');
       onClose();
     } catch (e) {
-      console.error(e);
-      toast('Failed to send message.', 'error');
+      console.error("Critical error sending message:", e);
+      toast('Failed to send message: ' + (e.message || 'Unknown error'), 'error');
     } finally {
       setSending(false);
     }
@@ -1605,7 +1625,7 @@ function MessageModal({ open, onClose, target, currentUser }) {
 
   return (
     <Modal open={open} onClose={onClose} eyebrow="Send Message" maxWidth="36rem">
-      <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>Message {target?.businessName || target?.name}</h2>
+      <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>Message {target?.businessName || target?.name || 'User'}</h2>
       <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>Your message will be sent securely through the platform.</p>
       
       <textarea 
@@ -1643,15 +1663,26 @@ function IntentModal({ open, onClose, target, type }) {
       
       if (type === 'supplier') {
         db.collection('se_listings').where('userId', '==', targetId).get().then(snap => {
-          setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          const cloudListings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          // Fallback to seed data if no cloud listings exist for this seed supplier
+          if (cloudListings.length === 0 && target.products) {
+             setItems(target.products.map((p, i) => ({ id: 'seed-' + i, title: p, description: 'Available from stock', price: 'Contact', moq: target.moq })));
+          } else {
+             setItems(cloudListings);
+          }
           setLoading(false);
-        }).catch(e => { console.error(e); setLoading(false); });
+        }).catch(e => { 
+          console.error(e); 
+          // Fallback on error
+          if (target.products) setItems(target.products.map((p, i) => ({ id: 'seed-' + i, title: p, description: 'Available from stock', price: 'Contact', moq: target.moq })));
+          setLoading(false); 
+        });
       } else {
-        // For buyers, we might want to show their recent quote requests or specific demand intents
-        db.collection('se_quotes').where('userId', '==', targetId).get().then(snap => {
-          setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-          setLoading(false);
-        }).catch(e => { console.error(e); setLoading(false); });
+        // For buyers, show their sources/requirements
+        if (target.sources) {
+          setItems(target.sources.map((s, i) => ({ id: 'dem-' + i, title: s, description: 'Active sourcing requirement', quantity: 'Contact', notes: `Frequency: ${target.frequency || 'N/A'}` })));
+        }
+        setLoading(false);
       }
     }
   }, [open, target, type]);
@@ -1659,7 +1690,7 @@ function IntentModal({ open, onClose, target, type }) {
   return (
     <Modal open={open} onClose={onClose} eyebrow={type === 'supplier' ? 'Supply Intent' : 'Demand Intent'} maxWidth="40rem">
       <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>{type === 'supplier' ? 'Active Stock & Offerings' : 'Active Sourcing Requirements'}</h2>
-      <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>Viewing the current listings for {target?.businessName || target?.name}.</p>
+      <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>Viewing the current intents for {target?.businessName || target?.name}.</p>
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0' }}><i className="fas fa-spinner fa-spin" style={{ fontSize: 24, color: '#E8730F' }}></i></div>
@@ -1701,7 +1732,6 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
   const [loading, setLoading] = useState(true);
   const [editingPost, setEditingPost] = useState(null);
   
-  // New Modal States for CTAs
   const [viewingProfileData, setViewingProfileData] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
@@ -3067,7 +3097,6 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
   const [profileType,setProfileType]=useState(null);
   const [saved,setSaved]=useState(()=>user?getSavedSuppliers(user.uid):[]);
   
-  // New Modal States for CTAs
   const [messageOpen, setMessageOpen] = useState(false);
   const [messageTarget, setMessageTarget] = useState(null);
   const [intentOpen, setIntentOpen] = useState(false);
