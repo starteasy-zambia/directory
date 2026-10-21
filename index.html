@@ -1488,7 +1488,7 @@ function SpotlightCard({ post, user, onComment, onDeleteComment, onEdit, onDelet
   );
 }
 
-function PublicUserProfileModal({ profileData, onClose }) {
+function PublicUserProfileModal({ profileData, onClose, onSendMessage, onViewIntent, onRequestQuote, onRequestIntro }) {
   if (!profileData) return null;
   const isSupplier = profileData.role === 'supplier';
   const displayName = isSupplier ? (profileData.businessName || profileData.name) : profileData.name;
@@ -1556,20 +1556,141 @@ function PublicUserProfileModal({ profileData, onClose }) {
         </div>
       )}
 
-      {/* PROFILE CTAs - NEW LOGIC */}
       <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:24, paddingTop:20, borderTop:'1px solid rgba(10,31,18,.1)'}}>
-          <button onClick={()=>alert('Opening internal messaging system. No contact info bypassed.')} style={{width:'100%',padding:'14px',background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+          <button onClick={()=>onSendMessage(profileData)} style={{width:'100%',padding:'14px',background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
              <i className="fa-regular fa-comment-dots"></i> Send Message
           </button>
           
-          <button onClick={()=>alert(isSupplier ? 'Upgrade to Premium to request quotes directly.' : 'Upgrade to Premium to request introductions directly.')} style={{width:'100%',padding:'14px',background:`linear-gradient(135deg,${cat.color},${cat.color}cc)`,color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, position:'relative'}}>
+          <button onClick={()=> isSupplier ? onRequestQuote(profileData) : onRequestIntro(profileData)} style={{width:'100%',padding:'14px',background:`linear-gradient(135deg,${cat.color},${cat.color}cc)`,color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8, position:'relative'}}>
              <i className="fa-solid fa-file-invoice-dollar"></i> {isSupplier ? 'Request Quote' : 'Request Introduction'}
              <span style={{position:'absolute', right:12, background:'rgba(0,0,0,0.25)', padding:'3px 8px', borderRadius:6, fontSize:10, textTransform:'uppercase', letterSpacing:'0.05em'}}><i className="fa-solid fa-lock"></i> Premium</span>
           </button>
 
-          <button onClick={()=>alert(isSupplier ? 'Viewing supplier\'s active supply intents/stock list.' : 'Viewing buyer\'s active demand intents.')} style={{width:'100%',padding:'14px', background:'rgba(30,123,60,0.1)', color:'#1E7B3C', border:'1px solid rgba(30,123,60,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+          <button onClick={()=>onViewIntent(profileData, isSupplier ? 'supplier' : 'buyer')} style={{width:'100%',padding:'14px', background:'rgba(30,123,60,0.1)', color:'#1E7B3C', border:'1px solid rgba(30,123,60,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
              <i className="fa-solid fa-boxes-stacked"></i> View {isSupplier ? 'Supply' : 'Demand'} Intent
           </button>
+      </div>
+    </Modal>
+  );
+}
+
+function MessageModal({ open, onClose, target, currentUser }) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const handleSend = async () => {
+    if (!text.trim() || !currentUser) return;
+    setSending(true);
+    try {
+      if (firebaseReady) {
+        await db.collection('se_messages').add({
+          toId: target.userId || target.id,
+          toName: target.businessName || target.name,
+          fromId: currentUser.uid,
+          fromName: currentUser.displayName || currentUser.email,
+          text,
+          createdAt: Date.now(),
+          read: false
+        });
+      }
+      toast('Message sent successfully!', 'success');
+      onClose();
+    } catch (e) {
+      console.error(e);
+      toast('Failed to send message.', 'error');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} eyebrow="Send Message" maxWidth="36rem">
+      <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>Message {target?.businessName || target?.name}</h2>
+      <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>Your message will be sent securely through the platform.</p>
+      
+      <textarea 
+        value={text} 
+        onChange={(e) => setText(e.target.value)} 
+        rows={5} 
+        placeholder="Hi, I'm interested in your products/services..." 
+        style={{ ...INP_STYLE, resize: 'vertical', fontFamily: 'inherit', marginBottom: 20 }}
+      />
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button 
+          onClick={handleSend} 
+          disabled={sending || !text.trim()} 
+          style={{ flex: 1, padding: '14px', background: sending ? '#ccc' : 'linear-gradient(135deg,#E8730F,#F5A623)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: sending ? 'wait' : 'pointer' }}
+        >
+          {sending ? 'Sending...' : 'Send Message'}
+        </button>
+        <button onClick={onClose} style={{ padding: '14px 22px', background: '#fff', border: '1px solid rgba(10,31,18,.15)', borderRadius: 8, fontSize: 14, fontWeight: 600, color: '#0A1F12' }}>
+          Cancel
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function IntentModal({ open, onClose, target, type }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (open && target && firebaseReady) {
+      setLoading(true);
+      const targetId = target.userId || target.id;
+      
+      if (type === 'supplier') {
+        db.collection('se_listings').where('userId', '==', targetId).get().then(snap => {
+          setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        }).catch(e => { console.error(e); setLoading(false); });
+      } else {
+        // For buyers, we might want to show their recent quote requests or specific demand intents
+        db.collection('se_quotes').where('userId', '==', targetId).get().then(snap => {
+          setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+          setLoading(false);
+        }).catch(e => { console.error(e); setLoading(false); });
+      }
+    }
+  }, [open, target, type]);
+
+  return (
+    <Modal open={open} onClose={onClose} eyebrow={type === 'supplier' ? 'Supply Intent' : 'Demand Intent'} maxWidth="40rem">
+      <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>{type === 'supplier' ? 'Active Stock & Offerings' : 'Active Sourcing Requirements'}</h2>
+      <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>Viewing the current listings for {target?.businessName || target?.name}.</p>
+
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px 0' }}><i className="fas fa-spinner fa-spin" style={{ fontSize: 24, color: '#E8730F' }}></i></div>
+      ) : items.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', background: '#F8FAF6', borderRadius: 12, border: '1px dashed rgba(10,31,18,.1)' }}>
+          <i className="fas fa-box-open" style={{ fontSize: 32, color: 'rgba(10,31,18,.2)', marginBottom: 12, display: 'block' }}></i>
+          <p style={{ fontSize: 14, color: 'rgba(10,31,18,.6)', margin: 0 }}>No active {type === 'supplier' ? 'supply listings' : 'demand requests'} found at this time.</p>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          {items.map((item, i) => (
+            <div key={i} style={{ background: '#fff', border: '1px solid rgba(10,31,18,.1)', borderRadius: 10, padding: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 14 }}>{item.title || item.product || 'Item'}</span>
+                <span className="chip chip-accent">{type === 'supplier' ? 'In Stock' : 'Active Request'}</span>
+              </div>
+              <p style={{ fontSize: 13, color: 'rgba(10,31,18,.7)', margin: 0, marginBottom: 8 }}>{item.description || item.notes || 'No additional details.'}</p>
+              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'rgba(10,31,18,.5)' }}>
+                {item.price && <span><strong>Price:</strong> {item.price}</span>}
+                {item.moq && <span><strong>MOQ:</strong> {item.moq}</span>}
+                {item.quantity && <span><strong>Qty:</strong> {item.quantity}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      <div style={{ marginTop: 24, textAlign: 'right' }}>
+        <button onClick={onClose} style={{ padding: '10px 20px', background: '#F5FAF6', border: '1px solid rgba(10,31,18,.15)', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#0A1F12' }}>
+          Close
+        </button>
       </div>
     </Modal>
   );
@@ -1579,8 +1700,18 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
   const [spotlights, setSpotlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingPost, setEditingPost] = useState(null);
+  
+  // New Modal States for CTAs
   const [viewingProfileData, setViewingProfileData] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageTarget, setMessageTarget] = useState(null);
+  const [intentOpen, setIntentOpen] = useState(false);
+  const [intentTarget, setIntentTarget] = useState(null);
+  const [intentType, setIntentType] = useState('supplier');
+  const [rfqOpen, setRfqOpen] = useState(false);
+  const [rfqTarget, setRfqTarget] = useState(null);
+  const [rfqType, setRfqType] = useState('quote');
 
   useEffect(() => {
     if (!firebaseReady) { setLoading(false); return; }
@@ -1672,6 +1803,30 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
     }
   };
 
+  const handleSendMessage = (target) => {
+    if (!user) { toast('Please sign in to send a message.', 'error'); return; }
+    setMessageTarget(target);
+    setMessageOpen(true);
+  };
+
+  const handleViewIntent = (target, type) => {
+    setIntentTarget(target);
+    setIntentType(type);
+    setIntentOpen(true);
+  };
+
+  const handleRequestQuote = (target) => {
+    setRfqTarget(target);
+    setRfqType('quote');
+    setRfqOpen(true);
+  };
+
+  const handleRequestIntro = (target) => {
+    setRfqTarget(target);
+    setRfqType('intro');
+    setRfqOpen(true);
+  };
+
   return <div className="fadein" style={{minHeight:'100%', background:'#F5FAF6', display:'flex', flexDirection:'column'}}>
     <main style={{flex:1, maxWidth:800, margin:'0 auto', padding:'40px 24px 60px', width:'100%'}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:32, flexWrap:'wrap', gap:16}}>
@@ -1719,8 +1874,16 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
       <PublicUserProfileModal 
         profileData={viewingProfileData} 
         onClose={() => setViewingProfileData(null)} 
+        onSendMessage={handleSendMessage}
+        onViewIntent={handleViewIntent}
+        onRequestQuote={handleRequestQuote}
+        onRequestIntro={handleRequestIntro}
       />
     )}
+
+    <MessageModal open={messageOpen} onClose={()=>setMessageOpen(false)} target={messageTarget} currentUser={user} />
+    <IntentModal open={intentOpen} onClose={()=>setIntentOpen(false)} target={intentTarget} type={intentType} />
+    <RFQModal open={rfqOpen} onClose={()=>setRfqOpen(false)} preselected={rfqTarget} type={rfqType} user={user} onSaved={()=>{}} />
   </div>;
 }
 
@@ -2903,6 +3066,13 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
   const [profile,setProfile]=useState(null);
   const [profileType,setProfileType]=useState(null);
   const [saved,setSaved]=useState(()=>user?getSavedSuppliers(user.uid):[]);
+  
+  // New Modal States for CTAs
+  const [messageOpen, setMessageOpen] = useState(false);
+  const [messageTarget, setMessageTarget] = useState(null);
+  const [intentOpen, setIntentOpen] = useState(false);
+  const [intentTarget, setIntentTarget] = useState(null);
+  const [intentType, setIntentType] = useState('supplier');
 
   useEffect(()=>{
     fsLoadDirectory().then(res=>{
@@ -2955,6 +3125,18 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
   },[listings,query,category]);
 
   const list=tab==='suppliers'?filteredSuppliers:(tab==='buyers'?filteredBuyers:filteredListings);
+
+  const handleSendMessage = (target) => {
+    if (!user) { toast('Please sign in to send a message.', 'error'); return; }
+    setMessageTarget(target);
+    setMessageOpen(true);
+  };
+
+  const handleViewIntent = (target, type) => {
+    setIntentTarget(target);
+    setIntentType(type);
+    setIntentOpen(true);
+  };
 
   return <div className="fadein" style={{minHeight:'100%', background:'#F5FAF6', display:'flex', flexDirection:'column'}}>
     <main style={{flex:1,maxWidth:1240,margin:'0 auto',padding:'32px 24px 60px',width:'100%'}}>
@@ -3035,12 +3217,15 @@ function Browse({user,onRequestQuote,onRequestIntro,onDashboard,onSignedOut}){
       </div>}
     </main>
     <Footer/>
-    {profile&&profileType==='supplier'&&<SupplierProfileModal supplier={profile} user={user} listings={listings.filter(l => l.userId === profile.userId || l.userId === profile.id)} onClose={()=>setProfile(null)} onRequestQuote={(s)=>{setProfile(null);onRequestQuote(s);}}/>}
-    {profile&&profileType==='buyer'&&<BuyerProfileModal buyer={profile} user={user} onClose={()=>setProfile(null)} onRequestIntro={(b)=>{setProfile(null);onRequestIntro(b);}}/>}
+    {profile&&profileType==='supplier'&&<SupplierProfileModal supplier={profile} user={user} listings={listings.filter(l => l.userId === profile.userId || l.userId === profile.id)} onClose={()=>setProfile(null)} onSendMessage={handleSendMessage} onViewIntent={handleViewIntent} onRequestQuote={(s)=>{setProfile(null);onRequestQuote(s);}}/>}
+    {profile&&profileType==='buyer'&&<BuyerProfileModal buyer={profile} user={user} onClose={()=>setProfile(null)} onSendMessage={handleSendMessage} onViewIntent={handleViewIntent} onRequestIntro={(b)=>{setProfile(null);onRequestIntro(b);}}/>}
+    
+    <MessageModal open={messageOpen} onClose={()=>setMessageOpen(false)} target={messageTarget} currentUser={user} />
+    <IntentModal open={intentOpen} onClose={()=>setIntentOpen(false)} target={intentTarget} type={intentType} />
   </div>;
 }
 
-function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
+function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote,onSendMessage,onViewIntent}){
   const cat=CAT_MAP[supplier.category]||{color:'#E8730F',icon:'fa-building',title:'Supplier'};
   const [isSaved,setIsSaved]=useState(()=>{ if(!user) return false; return getSavedSuppliers(user.uid).includes(supplier.id); });
   const toggleSave=()=>{ if(!user){ toast('Sign in to save suppliers.', 'error'); return; } const cur = getSavedSuppliers(user.uid); const next = cur.includes(supplier.id) ? cur.filter(x=>x!==supplier.id) : [...cur, supplier.id]; saveSavedSuppliers(user.uid, next); setIsSaved(next.includes(supplier.id)); toast(next.includes(supplier.id)?'Saved to your dashboard.':'Removed from saved.', 'success'); };
@@ -3068,9 +3253,8 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
       {supplier.delivery&&<div style={{background:'#fff',border:'1px solid rgba(10,31,18,.08)',borderRadius:9,padding:'12px 14px'}}><div style={{fontSize:10,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:4}}>Delivery</div><div style={{fontSize:13,fontWeight:700,color:'#0A1F12'}}>{supplier.delivery}</div></div>}
     </div>
     
-    {/* PROFILE CTAs */}
     <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:24}}>
-        <button onClick={()=>alert('Opening internal messaging system. No contact info bypassed.')} style={{width:'100%',padding:'14px',background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+        <button onClick={()=>onSendMessage(supplier)} style={{width:'100%',padding:'14px',background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
            <i className="fa-regular fa-comment-dots"></i> Send Message
         </button>
         
@@ -3079,14 +3263,14 @@ function SupplierProfileModal({supplier,user,listings,onClose,onRequestQuote}){
            <span style={{position:'absolute', right:12, background:'rgba(0,0,0,0.25)', padding:'3px 8px', borderRadius:6, fontSize:10, textTransform:'uppercase', letterSpacing:'0.05em'}}><i className="fa-solid fa-lock"></i> Premium</span>
         </button>
 
-        <button onClick={()=>alert('Viewing supplier\'s active supply intents/stock list.')} style={{width:'100%',padding:'14px', background:'rgba(30,123,60,0.1)', color:'#1E7B3C', border:'1px solid rgba(30,123,60,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+        <button onClick={()=>onViewIntent(supplier, 'supplier')} style={{width:'100%',padding:'14px', background:'rgba(30,123,60,0.1)', color:'#1E7B3C', border:'1px solid rgba(30,123,60,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
            <i className="fa-solid fa-boxes-stacked"></i> View Supply Intent
         </button>
     </div>
   </Modal>;
 }
 
-function BuyerProfileModal({buyer,onClose,onRequestIntro}){
+function BuyerProfileModal({buyer,onClose,onRequestIntro,onSendMessage,onViewIntent}){
   return <Modal open={true} onClose={onClose} eyebrow="Buyer profile" maxWidth="42rem">
     <div style={{display:'flex', alignItems:'center', gap:14, marginBottom:16}}>
       <span style={{width:64,height:64,borderRadius:15,background:'rgba(232,115,15,.15)',color:'#E8730F',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,flexShrink:0, overflow:'hidden', border:'3px solid #fff', boxShadow:'0 4px 10px rgba(0,0,0,0.1)'}}>
@@ -3101,9 +3285,8 @@ function BuyerProfileModal({buyer,onClose,onRequestIntro}){
     <p style={{fontSize:14,lineHeight:1.7,color:'rgba(10,31,18,.75)',marginBottom:16}}>{buyer.desc}</p>
     {buyer.sources&&<div style={{marginBottom:16}}><div style={{fontSize:11,textTransform:'uppercase',fontWeight:800,color:'rgba(10,31,18,.5)',marginBottom:10}}>Sources</div><div style={{display:'flex',flexWrap:'wrap',gap:8}}>{buyer.sources.map((p,i)=><span key={i} style={{fontSize:12.5,color:'rgba(138,104,40,.9)',background:'#fff',border:'1px solid rgba(232,115,15,.25)',padding:'6px 12px',borderRadius:99,fontWeight:600}}>{p}</span>)}</div></div>}
     
-    {/* PROFILE CTAs */}
     <div style={{display:'flex', flexDirection:'column', gap:10, marginTop:24}}>
-        <button onClick={()=>alert('Opening internal messaging system.')} style={{width:'100%',padding:'14px', background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+        <button onClick={()=>onSendMessage(buyer)} style={{width:'100%',padding:'14px', background:'#F5FAF6', color:'#0A1F12', border:'1px solid rgba(10,31,18,0.15)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
            <i className="fa-regular fa-comment-dots"></i> Send Message
         </button>
         
@@ -3112,7 +3295,7 @@ function BuyerProfileModal({buyer,onClose,onRequestIntro}){
            <span style={{position:'absolute', right:12, background:'rgba(0,0,0,0.2)', padding:'3px 8px', borderRadius:6, fontSize:10, textTransform:'uppercase', letterSpacing:'0.05em'}}><i className="fa-solid fa-lock"></i> Premium</span>
         </button>
         
-        <button onClick={()=>alert('Viewing buyer\'s demand intents.')} style={{width:'100%',padding:'14px', background:'rgba(232,115,15,0.1)', color:'#E8730F', border:'1px solid rgba(232,115,15,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
+        <button onClick={()=>onViewIntent(buyer, 'buyer')} style={{width:'100%',padding:'14px', background:'rgba(232,115,15,0.1)', color:'#E8730F', border:'1px solid rgba(232,115,15,0.2)', borderRadius:10,fontSize:14,fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:8}}>
            <i className="fa-solid fa-magnifying-glass-dollar"></i> View Demand Intent
         </button>
     </div>
