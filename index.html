@@ -247,6 +247,27 @@ const MAIN_PLATFORM_URL = 'https://www.starteasyzambia.com';
 const REFERRAL_URL = 'https://referral.starteasyzambia.com/';
 const SIGNATORY_NAME = 'MWABA LEWIS';
 
+/* ═══════════════════════════════════════════════════════════════
+   CLOUDINARY CONFIG
+   ───────────────────────────────────────────────────────────────
+   Fill CLOUDINARY_CLOUD_NAME with your Cloudinary "Cloud name"
+   (found in your Cloudinary Dashboard, top-left under the account).
+   Upload preset: starteasy_unsigned  (set to Unsigned mode)
+   ═══════════════════════════════════════════════════════════════ */
+const CLOUDINARY_CLOUD_NAME    = 'dc21o9hz';   // ← fill this in
+const CLOUDINARY_UPLOAD_PRESET = 'starteasy_unsigned';
+const CLOUDINARY_ENABLED =
+  !!CLOUDINARY_CLOUD_NAME && CLOUDINARY_CLOUD_NAME !== 'dc21o9hz';
+
+if (!CLOUDINARY_ENABLED) {
+  console.warn(
+    '[SE] ⚠️  Cloudinary cloud name is not set.\n' +
+    '     Media uploads will fall back to Base64 (~600 KB limit, images only).\n' +
+    '     Set CLOUDINARY_CLOUD_NAME at the top of the <script type="text/babel"> block\n' +
+    '     to enable reliable image + video uploads.'
+  );
+}
+
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDdEyxvsd2RjgKVYTGYJfYUB_637lV3n5I",
   authDomain: "starteasy-zambia.firebaseapp.com",
@@ -308,84 +329,128 @@ function saveListings(uid, arr){ lsSet('se_listings_'+uid, arr); }
 function getSubs(uid){ return lsGet('se_subs_'+uid, {}); }
 function saveSubs(uid, data){ lsSet('se_subs_'+uid, data); }
 
-/* Compress image client-side before upload so files are smaller and uploads succeed more often */
-async function compressImage(file, maxSize = 800, quality = 0.7) {
+/* ═══════════════════════════════════════════════════════════════
+   MEDIA UPLOAD LAYER — Cloudinary primary, Base64 fallback
+   ═══════════════════════════════════════════════════════════════ */
+
+// Upload a file straight from the browser to Cloudinary with progress
+function cloudinaryUpload(file, resourceType, onProgress) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText).secure_url); }
+        catch { reject(new Error('Invalid Cloudinary response')); }
+      } else {
+        let msg = 'Upload failed (HTTP ' + xhr.status + ')';
+        try { msg = JSON.parse(xhr.responseText).error?.message || msg; } catch {}
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(form);
+  });
+}
+
+// High-quality client-side compression (used only in Base64 fallback)
+function compressImage(file, maxSize = 1024, quality = 0.75) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = (event) => {
+    reader.onload = (ev) => {
       const img = new Image();
-      img.src = event.target.result;
+      img.src = ev.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
         let { width, height } = img;
         if (width > maxSize || height > maxSize) {
-          if (width > height) {
-            height = Math.round((height * maxSize) / width);
-            width = maxSize;
-          } else {
-            width = Math.round((width * maxSize) / height);
-            height = maxSize;
-          }
+          if (width > height) { height = Math.round(height * maxSize / width); width = maxSize; }
+          else { width = Math.round(width * maxSize / height); height = maxSize; }
         }
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = width; canvas.height = height;
         const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
         canvas.toBlob(
-          (blob) => {
-            if (!blob) return reject(new Error('Compression failed'));
-            const compressedFile = new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '.jpg'), {
-              type: 'image/jpeg',
-              lastModified: Date.now()
-            });
-            resolve(compressedFile);
-          },
-          'image/jpeg',
-          quality
+          (blob) => blob
+            ? resolve(new File([blob], (file.name || 'image').replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }))
+            : reject(new Error('Compression failed')),
+          'image/jpeg', quality
         );
       };
-      img.onerror = () => reject(new Error('Image could not be read'));
+      img.onerror = () => reject(new Error('Could not read image'));
     };
-    reader.onerror = () => reject(new Error('File could not be read'));
+    reader.onerror = () => reject(new Error('Could not read file'));
   });
 }
 
-/* 
-  FREE PLAN FALLBACK:
-  We cannot use Firebase Storage (requires Blaze plan). 
-  Instead, we heavily compress images and convert to Base64 (stored in Firestore).
-*/
-async function uploadImageSafe(file, path) {
-  if (file.type.startsWith('video/')) {
-    throw new Error("Video uploads require a paid Firebase plan. Please upload an image instead.");
+/**
+ * Main upload entry point — use this everywhere.
+ *   kind: 'image' | 'cover' | 'spotlight'
+ *   returns: { url, type: 'image'|'video', source: 'cloudinary'|'base64' }
+ */
+async function uploadMedia(file, kind = 'image', onProgress) {
+  if (!file) throw new Error('No file selected');
+
+  const isVideo = file.type.startsWith('video/');
+  const isImage = file.type.startsWith('image/');
+  if (!isVideo && !isImage) throw new Error('Only images or videos are allowed');
+
+  if (isVideo && file.size > 50 * 1024 * 1024) throw new Error('Video must be under 50 MB');
+  if (isImage && file.size > 15 * 1024 * 1024) throw new Error('Image must be under 15 MB');
+
+  // ── Preferred path: Cloudinary ──
+  if (CLOUDINARY_ENABLED) {
+    try {
+      const url = await cloudinaryUpload(file, isVideo ? 'video' : 'image', onProgress);
+      return { url, type: isVideo ? 'video' : 'image', source: 'cloudinary' };
+    } catch (err) {
+      console.warn('[upload] Cloudinary failed:', err.message);
+      if (isVideo) throw new Error('Video upload failed — ' + err.message);
+      // fall through to Base64 for images
+    }
+  } else if (isVideo) {
+    throw new Error('Video uploads require Cloudinary to be configured. Please upload an image instead.');
   }
 
-  // 1. Compress the image heavily to fit within Firestore's 1MB document limit
-  let maxSize = 800;
-  let quality = 0.7;
-  
-  if (path === 'covers') { maxSize = 1200; quality = 0.6; }
-  if (path === 'spotlights') { maxSize = 1000; quality = 0.6; }
+  // ── Fallback: Base64 with strict ceiling (Firestore 1 MB doc limit) ──
+  let maxDim = kind === 'cover' ? 1200 : kind === 'spotlight' ? 1100 : 900;
+  let q       = kind === 'cover' ? 0.62 : kind === 'spotlight' ? 0.68 : 0.7;
 
-  let compressed = await compressImage(file, maxSize, quality);
+  let out = await compressImage(file, maxDim, q);
+  if (out.size > 500 * 1024) out = await compressImage(out, 800, 0.55);
+  if (out.size > 550 * 1024) out = await compressImage(out, 600, 0.5);
 
-  // 2. If it's still too big (e.g. extremely detailed photo), compress harder
-  if (compressed.size > 600 * 1024) {
-    compressed = await compressImage(compressed, 600, 0.5);
+  if (out.size > 600 * 1024) {
+    throw new Error(
+      'Image too large for offline fallback. Configure Cloudinary (2-minute setup) ' +
+      'or upload a smaller image.'
+    );
   }
 
-  if (compressed.size > 700 * 1024) {
-    throw new Error('Image is too large. Even after compression, it exceeds the database limit. Please choose a smaller image.');
-  }
-
-  // 3. Convert to Base64
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(compressed);
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Image encoding failed'));
+  const url = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.readAsDataURL(out);
+    r.onload  = () => res(r.result);
+    r.onerror = () => rej(new Error('Encoding failed'));
   });
+  return { url, type: 'image', source: 'base64' };
+}
+
+// Backwards-compatible shim so existing callers keep working
+async function uploadImageSafe(file, path) {
+  const kind = path === 'covers' ? 'cover' : path === 'spotlights' ? 'spotlight' : 'image';
+  const res = await uploadMedia(file, kind);
+  return res.url;
 }
 
 async function fsLoadDirectory(){
@@ -674,72 +739,115 @@ function PasswordInput({value,onChange,placeholder='••••••••',au
   </div>;
 }
 
-function ImageUploader({ label, currentUrl, onFileSelect, aspectRatio = '1/1', previewW, previewH }) {
-  const [preview, setPreview] = useState(currentUrl || '');
+/* ═══════════════════════════════════════════════════════════════
+   ImageUploader — drag & drop, image + optional video, preview
+   ═══════════════════════════════════════════════════════════════ */
+function ImageUploader({
+  label, currentUrl, onFileSelect,
+  aspectRatio = '1/1', previewW, previewH,
+  allowVideo = false, maxSizeMB = 15, resetKey = 0,
+}) {
+  const [preview, setPreview]       = useState(currentUrl || '');
+  const [previewType, setPreviewType] = useState('image');
+  const [dragging, setDragging]     = useState(false);
+  const [error, setError]           = useState('');
   const fileInputRef = useRef(null);
 
-  useEffect(() => { setPreview(currentUrl || ''); }, [currentUrl]);
+  useEffect(() => {
+    setPreview(currentUrl || '');
+    setPreviewType('image');
+  }, [currentUrl, resetKey]);
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast('File is too large. Max 10MB.', 'error');
-        return;
-      }
-      const objUrl = URL.createObjectURL(file);
-      setPreview(objUrl);
-      onFileSelect(file);
-    }
+  const accept = (file) => {
+    setError('');
+    if (!file) return;
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isVideo && !isImage)                    { setError('Choose an image or video.'); return; }
+    if (isVideo && !allowVideo)                  { setError('Videos are not allowed here.'); return; }
+    if (file.size > maxSizeMB * 1024 * 1024)     { setError(`Max ${maxSizeMB} MB.`); return; }
+    setPreviewType(isVideo ? 'video' : 'image');
+    setPreview(URL.createObjectURL(file));
+    onFileSelect(file);
   };
 
   const isCircle = aspectRatio === '1/1';
-  const w = previewW || (isCircle ? 80 : 200);
-  const h = previewH || (isCircle ? 80 : 76);
+  const w = previewW || (isCircle ? 88 : 220);
+  const h = previewH || (isCircle ? 88 : 84);
 
   return (
     <div>
-      <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>{label}</label>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <div
-          style={{
-            width: w, height: h,
-            borderRadius: isCircle ? '50%' : 10,
-            background: '#E5E7EB',
-            border: '2px solid #D1D5DB',
-            position: 'relative',
-            overflow: 'hidden',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0
-          }}>
+      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#0A1F12', marginBottom: 8 }}>
+        {label}
+      </label>
+
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); accept(e.dataTransfer.files[0]); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
+      >
+        <div style={{
+          width: w, height: h,
+          borderRadius: isCircle ? '50%' : 10,
+          background: dragging ? '#FFF7E6' : '#F3F4F6',
+          border: dragging ? '2px dashed #E8730F' : '2px solid #E5E7EB',
+          overflow: 'hidden', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
           {preview ? (
-            <img src={preview} alt="Preview" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+            previewType === 'video' ? (
+              <video src={preview} muted loop playsInline autoPlay
+                     style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <img src={preview} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            )
           ) : (
-            <div style={{textAlign:'center', color:'#9CA3AF'}}>
-              <i className="fas fa-camera" style={{fontSize: 22}}></i>
-            </div>
+            <i className={`fas ${allowVideo ? 'fa-photo-film' : 'fa-camera'}`}
+               style={{ fontSize: 24, color: '#9CA3AF' }} />
           )}
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            style={{ padding:'9px 16px', background:'#fff', border:'1px solid rgba(10,31,18,.2)', borderRadius:7, fontSize:12, fontWeight:700, color:'#0A1F12', cursor:'pointer', display:'inline-flex', alignItems:'center', gap:7 }}
-          >
-            <i className="fas fa-upload" style={{fontSize:11}}></i> Choose Image
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, minWidth: 140 }}>
+          <button type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ padding: '9px 16px', background: '#fff',
+                           border: '1.5px solid rgba(10,31,18,.2)', borderRadius: 8,
+                           fontSize: 12.5, fontWeight: 700, color: '#0A1F12',
+                           cursor: 'pointer', display: 'inline-flex',
+                           alignItems: 'center', gap: 7, justifyContent: 'center' }}>
+            <i className="fas fa-cloud-arrow-up" style={{ fontSize: 12 }} />
+            {preview ? 'Change' : 'Choose'} {allowVideo ? 'File' : 'Image'}
           </button>
+
           {preview && (
-            <button
-              type="button"
-              onClick={() => { setPreview(''); onFileSelect(null); if(fileInputRef.current) fileInputRef.current.value = ''; }}
-              style={{ padding:'6px 16px', background:'transparent', border:'none', fontSize:11.5, fontWeight:600, color:'#B8564F', cursor:'pointer' }}
-            >
+            <button type="button"
+                    onClick={() => { setPreview(''); setPreviewType('image'); setError('');
+                                     onFileSelect(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    style={{ padding: '6px 16px', background: 'transparent', border: 'none',
+                             fontSize: 11.5, fontWeight: 600, color: '#B8564F', cursor: 'pointer' }}>
               Remove
             </button>
           )}
+
+          <div style={{ fontSize: 10.5, color: 'rgba(10,31,18,.5)', lineHeight: 1.4 }}>
+            Drag &amp; drop or click · max {maxSizeMB} MB
+          </div>
         </div>
       </div>
-      <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} style={{display: 'none'}} />
+
+      {error && (
+        <div style={{ fontSize: 11.5, color: '#B8564F', marginTop: 6,
+                      display: 'flex', alignItems: 'center', gap: 5 }}>
+          <i className="fas fa-exclamation-circle" /> {error}
+        </div>
+      )}
+
+      <input type="file"
+             accept={allowVideo ? 'image/*,video/*' : 'image/*'}
+             ref={fileInputRef}
+             onChange={(e) => accept(e.target.files[0])}
+             style={{ display: 'none' }} />
     </div>
   );
 }
@@ -776,7 +884,6 @@ function ProfileHeader({ profile, onEditClick, isVerified }) {
           <p>
             <span style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 10px',borderRadius:99,background:cat.color+'15',color:cat.color,fontSize:11.5,fontWeight:800,textTransform:'uppercase',letterSpacing:'.05em'}}>{cat.title}</span>
             <span><i className="fas fa-location-dot" style={{marginRight:4,fontSize:11}}></i>{locLabel(profile)||'—'}</span>
-            {/* Using the passed isVerified prop ensures consistency */}
             <span className={`chip ${isVerified?'':'chip-danger'}`} style={{fontSize:10.5}}>{isVerified?'Verified':'Unverified'}</span>
           </p>
         </div>
@@ -1274,7 +1381,7 @@ function PrivacyPage(){
         <h1 className="serif" style={{fontSize:'clamp(1.8rem,4vw,2.6rem)', color:'#0A1F12', marginTop:0}}>Privacy Policy</h1>
         <p style={{color:'rgba(10,31,18,.55)', fontSize:13.5}}>Last updated: {new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</p>
         <p style={{fontSize:14,color:'rgba(10,31,18,.7)',lineHeight:1.75}}>StartEasy Zambia ("we", "us") respects your privacy. This policy explains what we collect, why we collect it, and how you can control it.</p>
-        {[['1. Information we collect',['Account data: Name, email, phone, business name, category, location — provided when you sign up.','Profile data: Products, MOQ, delivery, lead time (suppliers); sourcing preferences (buyers).','Usage data: Pages visited, searches run, listings viewed. Used to improve the Directory.','Communications: Messages you send us, and requests submitted through the Directory.','Transaction data: Payments for premium services (payment is processed via the methods shown on the payment page).']],['2. How we use your information',['To operate the Directory and connect buyers with suppliers.','To verify suppliers and maintain trust.','To send you account notifications, opportunity alerts (if you opted in), and service updates.','To improve the Directory through analytics.']],['3. Sharing','Your public profile information (name, business name, category, location, products) is visible to other Directory users. We do not sell personal data to third parties. We share data only with service providers that help us operate (Firebase for data storage, payment processors) and where required by law.'],['4. Cookies and analytics','We use cookies and similar technologies to keep you signed in and to understand usage. You can disable cookies in your browser, but this may affect functionality.'],['5. Data retention','We retain your data while your account is active. If you delete your account, we remove your personal information within 30 days, except where required for legal or accounting purposes.'],['6. Your rights','You can access, correct, or delete your data at any time from your dashboard or by emailing us. You can opt out of marketing emails at any time.'],['7. Security','We use industry-standard measures to protect your data, including encrypted transmission and access controls. No system is 100% secure, however — always be careful about sharing sensitive information.'],['8. Children','The Directory is intended for business use by adults. We do not knowingly collect data from anyone under 18.'],['9. Changes','We may update this policy. Material changes will be announced on the Directory.'],['10. Contact',<>Questions about your data? Email <a href={'mailto:'+CONTACT_EMAIL} style={{color:'#E8730F',fontWeight:700}}>{CONTACT_EMAIL}</a>.</>]].map(([h,b],i)=>(
+        {[['1. Information we collect',['Account data: Name, email, phone, business name, category, location — provided when you sign up.','Profile data: Products, MOQ, delivery, lead time (suppliers); sourcing preferences (buyers).','Usage data: Pages visited, searches run, listings viewed. Used to improve the Directory.','Communications: Messages you send us, and requests submitted through the Directory.','Transaction data: Payments for premium services (payment is processed via the methods shown on the payment page).']],['2. How we use your information',['To operate the Directory and connect buyers with suppliers.','To verify suppliers and maintain trust.','To send you account notifications, opportunity alerts (if you opted in), and service updates.','To improve the Directory through analytics.']],['3. Sharing','Your public profile information (name, business name, category, location, products) is visible to other Directory users. We do not sell personal data to third parties. We share data only with service providers that help us operate (Firebase for data storage, Cloudinary for media hosting, payment processors) and where required by law.'],['4. Cookies and analytics','We use cookies and similar technologies to keep you signed in and to understand usage. You can disable cookies in your browser, but this may affect functionality.'],['5. Data retention','We retain your data while your account is active. If you delete your account, we remove your personal information within 30 days, except where required for legal or accounting purposes.'],['6. Your rights','You can access, correct, or delete your data at any time from your dashboard or by emailing us. You can opt out of marketing emails at any time.'],['7. Security','We use industry-standard measures to protect your data, including encrypted transmission and access controls. No system is 100% secure, however — always be careful about sharing sensitive information.'],['8. Children','The Directory is intended for business use by adults. We do not knowingly collect data from anyone under 18.'],['9. Changes','We may update this policy. Material changes will be announced on the Directory.'],['10. Contact',<>Questions about your data? Email <a href={'mailto:'+CONTACT_EMAIL} style={{color:'#E8730F',fontWeight:700}}>{CONTACT_EMAIL}</a>.</>]].map(([h,b],i)=>(
           <React.Fragment key={i}>
             <h2 className="serif" style={{fontSize:'clamp(1.15rem,2.2vw,1.4rem)', color:'#0A1F12', marginTop:24}}>{h}</h2>
             {Array.isArray(b) ? <ul style={{fontSize:14,color:'rgba(10,31,18,.7)',lineHeight:1.85,paddingLeft:22}}>{b.map((x,j)=><li key={j}>{x}</li>)}</ul> : <p style={{fontSize:14,color:'rgba(10,31,18,.7)',lineHeight:1.75}}>{b}</p>}
@@ -1342,7 +1449,7 @@ function SpotlightCard({ post, user, onComment }) {
       </div>
       {post.title && <h3 style={{fontSize:16, fontWeight:800, color:'#0A1F12', marginBottom:10}}>{post.title}</h3>}
       {post.mediaUrl && post.mediaType === 'image' && <img src={post.mediaUrl} alt="Spotlight media" className="spotlight-media" />}
-      {post.mediaUrl && post.mediaType === 'video' && <video src={post.mediaUrl} controls className="spotlight-media" />}
+      {post.mediaUrl && post.mediaType === 'video' && <video src={post.mediaUrl} controls playsInline className="spotlight-media" />}
       <div className="spotlight-body">{post.content}</div>
       <div className="spotlight-footer">
         <button className="sa-btn" onClick={() => setShowComments(!showComments)}><i className="far fa-comment"></i> {post.comments && post.comments.length > 0 ? `${post.comments.length} Enquiries` : 'Comment'}</button>
@@ -1430,80 +1537,159 @@ function PublicSpotlightsPage({ user, onDashboard, onPostClick }) {
   </div>;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   CreateSpotlightModal — image OR video, drag & drop, progress bar
+   ═══════════════════════════════════════════════════════════════ */
 function CreateSpotlightModal({ onClose, onSave, profile }) {
-  const [form, setForm] = useState({ title: '', content: '' });
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm]               = useState({ title: '', content: '' });
+  const [file, setFile]               = useState(null);
+  const [preview, setPreview]         = useState(null);
+  const [previewType, setPreviewType] = useState('image');
+  const [submitting, setSubmitting]   = useState(false);
+  const [progress, setProgress]       = useState(0);
+  const [error, setError]             = useState('');
+  const fileInputRef = useRef(null);
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files[0];
-    if (selected) {
-      if (selected.size > 10 * 1024 * 1024) { 
-        toast('Image is too large. Max 10MB.', 'error'); 
-        e.target.value = null; 
-        return; 
-      }
-      setFile(selected);
-      setPreview(URL.createObjectURL(selected));
-    }
+  const accept = (selected) => {
+    setError('');
+    if (!selected) return;
+    const isVideo = selected.type.startsWith('video/');
+    const isImage = selected.type.startsWith('image/');
+    if (!isVideo && !isImage)                        { setError('Choose an image or video.'); return; }
+    if (isVideo && selected.size > 50 * 1024 * 1024) { setError('Video must be under 50 MB.'); return; }
+    if (isImage && selected.size > 15 * 1024 * 1024) { setError('Image must be under 15 MB.'); return; }
+    setFile(selected);
+    setPreviewType(isVideo ? 'video' : 'image');
+    setPreview(URL.createObjectURL(selected));
   };
 
   const submit = async () => {
-    if(!form.title.trim()) return toast('Enter a headline for your spotlight.', 'error');
-    if(!form.content.trim()) return toast('Write something about your business.', 'error');
+    setError('');
+    if (!form.title.trim())   { setError('Add a headline.');   return; }
+    if (!form.content.trim()) { setError('Add some details.'); return; }
+
     setSubmitting(true);
-    
-    let mediaUrl = null;
-    let mediaType = null;
-    
-    if (file) {
-      try {
-        mediaUrl = await uploadImageSafe(file, 'spotlights');
-        mediaType = 'image';
-      } catch (error) {
-        console.warn("Upload failed", error);
-        toast(error.message || 'Image upload failed — posting without media.', 'error');
-        mediaUrl = null;
-        mediaType = null;
+    setProgress(0);
+
+    try {
+      let mediaUrl  = null;
+      let mediaType = null;
+      if (file) {
+        toast('Uploading media…', 'info');
+        const r = await uploadMedia(file, 'spotlight', setProgress);
+        mediaUrl  = r.url;
+        mediaType = r.type;
       }
-    }
-    
-    try { 
-      await onSave({ ...form, mediaUrl, mediaType }); 
-    }
-    catch (e) { 
-      console.error(e); 
-    }
-    finally { 
-      setSubmitting(false); 
+      await onSave({ ...form, mediaUrl, mediaType });
+    } catch (e) {
+      console.error(e);
+      setError(e.message || 'Upload failed. Please try again.');
+      toast(e.message || 'Upload failed', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  return <Modal open={true} onClose={onClose} eyebrow="Business Spotlight" maxWidth="36rem">
-    <h2 className="serif" style={{fontSize:24, marginBottom:6, color:'#0A1F12'}}>Share an Update</h2>
-    <p style={{fontSize:13,color:'rgba(10,31,18,.6)',marginBottom:20}}>Post about new products, services, or business milestones. Visible to the public.</p>
-    <div style={{display:'grid',gap:14}}>
-      <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Headline *</label><TIn value={form.title} onChange={v=>setForm({...form,title:v})} placeholder="e.g. We just launched a new fabric line!"/></div>
-      <div><label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Details *</label><textarea value={form.content} onChange={e=>setForm({...form,content:e.target.value})} rows={4} placeholder="Tell the community what you're building, offering, or looking for..." style={{...INP_STYLE, resize:'vertical', fontFamily:'inherit'}}/></div>
-      <div>
-        <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>Attach Image (Max 10MB)</label>
-        <input type="file" accept="image/*" onChange={handleFileChange} style={{display:'block', width:'100%', padding:'10px', background:'#fff', border:'1px dashed rgba(10,31,18,.3)', borderRadius:'8px', fontSize:'13px'}} />
-        {preview && (
-          <div style={{marginTop:12, position:'relative'}}>
-            <img src={preview} alt="Preview" style={{width:'100%', borderRadius:'8px', maxHeight:'200px', objectFit:'cover'}} />
-            <button onClick={()=>{setFile(null);setPreview(null);}} style={{position:'absolute', top:8, right:8, background:'rgba(0,0,0,0.6)', color:'#fff', border:'none', borderRadius:'50%', width:24, height:24, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer'}}><i className="fas fa-times"></i></button>
+  return (
+    <Modal open={true} onClose={onClose} eyebrow="Business Spotlight" maxWidth="36rem">
+      <h2 className="serif" style={{ fontSize: 24, marginBottom: 6, color: '#0A1F12' }}>Share an Update</h2>
+      <p style={{ fontSize: 13, color: 'rgba(10,31,18,.6)', marginBottom: 20 }}>
+        Post about new products, services, or business milestones. Visible to the public.
+      </p>
+
+      <div style={{ display: 'grid', gap: 14 }}>
+        <div>
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#0A1F12', marginBottom: 6 }}>Headline *</label>
+          <TIn value={form.title} onChange={v => setForm({ ...form, title: v })}
+               placeholder="e.g. We just launched a new fabric line!" />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#0A1F12', marginBottom: 6 }}>Details *</label>
+          <textarea value={form.content}
+                    onChange={e => setForm({ ...form, content: e.target.value })}
+                    rows={4}
+                    placeholder="Tell the community what you're building, offering, or looking for…"
+                    style={{ ...INP_STYLE, resize: 'vertical', fontFamily: 'inherit' }} />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#0A1F12', marginBottom: 6 }}>
+            Media (optional)
+          </label>
+
+          {!preview ? (
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); accept(e.dataTransfer.files[0]); }}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                padding: '26px 16px', background: '#F9FAFB',
+                border: '2px dashed rgba(10,31,18,.2)', borderRadius: 10, cursor: 'pointer'
+              }}
+            >
+              <i className="fas fa-cloud-arrow-up" style={{ fontSize: 26, color: '#E8730F', marginBottom: 8 }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#0A1F12', marginBottom: 4 }}>
+                Click or drag &amp; drop
+              </span>
+              <span style={{ fontSize: 11, color: 'rgba(10,31,18,.55)' }}>
+                Image (max 15 MB) or video (max 50 MB)
+              </span>
+            </div>
+          ) : (
+            <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
+              {previewType === 'video'
+                ? <video src={preview} controls playsInline style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }} />
+                : <img src={preview} alt="Preview" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }} />}
+              <button onClick={() => { setFile(null); setPreview(null); }}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,.6)',
+                               color: '#fff', border: 'none', borderRadius: '50%',
+                               width: 28, height: 28, cursor: 'pointer' }}>
+                <i className="fas fa-times" />
+              </button>
+            </div>
+          )}
+
+          <input ref={fileInputRef} type="file" accept="image/*,video/*"
+                 onChange={(e) => accept(e.target.files[0])}
+                 style={{ display: 'none' }} />
+        </div>
+
+        {submitting && progress > 0 && progress < 100 && (
+          <div style={{ background: '#F3F4F6', borderRadius: 6, height: 6, overflow: 'hidden' }}>
+            <div style={{ width: progress + '%', height: '100%', background: '#E8730F',
+                          transition: 'width .3s' }} />
+          </div>
+        )}
+
+        {error && (
+          <div style={{ background: 'rgba(184,86,79,.08)', border: '1px solid rgba(184,86,79,.3)',
+                        borderRadius: 8, padding: '10px 14px', fontSize: 12.5, color: '#7C2318' }}>
+            <i className="fas fa-circle-exclamation" style={{ marginRight: 6 }} /> {error}
           </div>
         )}
       </div>
-    </div>
-    <div style={{display:'flex', gap:10, marginTop:22, flexWrap:'wrap'}}>
-      <button onClick={submit} disabled={submitting} style={{flex:'1 1 200px', padding:'14px', background:submitting?'#ccc':'linear-gradient(135deg,#E8730F,#F5A623)', color:'#fff', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:submitting?'wait':'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8}}>
-        <i className={`fas ${submitting?'fa-spinner fa-spin':'fa-paper-plane'}`}></i>{submitting?'Posting…':'Post to Spotlight'}
-      </button>
-      <button onClick={onClose} style={{padding:'14px 22px', background:'#fff', border:'1px solid rgba(10,31,18,.15)', borderRadius:8, fontSize:14, fontWeight:600, color:'#0A1F12'}}>Cancel</button>
-    </div>
-  </Modal>;
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 22, flexWrap: 'wrap' }}>
+        <button onClick={submit} disabled={submitting}
+                style={{ flex: '1 1 200px', padding: 14,
+                         background: submitting ? '#ccc' : 'linear-gradient(135deg,#E8730F,#F5A623)',
+                         color: '#fff', border: 'none', borderRadius: 8, fontSize: 14,
+                         fontWeight: 700, cursor: submitting ? 'wait' : 'pointer',
+                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <i className={`fas ${submitting ? 'fa-spinner fa-spin' : 'fa-paper-plane'}`} />
+          {submitting ? 'Posting…' : 'Post to Spotlight'}
+        </button>
+        <button onClick={onClose} disabled={submitting}
+                style={{ padding: '14px 22px', background: '#fff',
+                         border: '1px solid rgba(10,31,18,.15)', borderRadius: 8,
+                         fontSize: 14, fontWeight: 600, color: '#0A1F12' }}>
+          Cancel
+        </button>
+      </div>
+    </Modal>
+  );
 }
 
 /* ═══════════════════ DASHBOARD ═══════════════════ */
@@ -1527,6 +1713,7 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
   const [mySpotlights, setMySpotlights] = useState([]);
   const [profileFile, setProfileFile] = useState(null);
   const [coverFile, setCoverFile] = useState(null);
+  const [imgResetKey, setImgResetKey] = useState(0);
 
   useEffect(()=>{
     if(!user){setLoading(false);return;}
@@ -1583,84 +1770,108 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
     return () => window.removeEventListener('nav-tab', onTab);
   },[]);
 
-  /* Enhanced saveProfile: robust image saving with fallback */
-  const saveProfile=async()=>{
-    if(!editForm) return;
-    setSaving(true);setSaveMsg(null);
-    try{
-      const isSupplier=profile.role==='supplier';
-      let finalProfilePhoto = editForm.profilePhoto;
-      let finalCoverPhoto = editForm.coverPhoto;
-      const uploadErrors = [];
+  /* Save profile — non-blocking on media failure, safe against Firestore doc-size limits */
+  const saveProfile = async () => {
+    if (!editForm) return;
+    setSaving(true);
+    setSaveMsg(null);
+
+    try {
+      const isSupplier = profile.role === 'supplier';
+      let finalProfilePhoto = editForm.profilePhoto || '';
+      let finalCoverPhoto   = editForm.coverPhoto   || '';
+      const warnings = [];
 
       if (profileFile) {
         try {
-          toast('Uploading profile photo...', 'info');
-          finalProfilePhoto = await uploadImageSafe(profileFile, 'profiles');
+          toast('Uploading profile photo…', 'info');
+          const r = await uploadMedia(profileFile, 'image');
+          finalProfilePhoto = r.url;
         } catch (e) {
-          console.warn("Profile image upload failed", e);
-          uploadErrors.push('profile photo');
+          console.error('[profile photo]', e);
+          warnings.push('profile photo (' + e.message + ')');
         }
       }
       if (coverFile) {
         try {
-          toast('Uploading cover photo...', 'info');
-          finalCoverPhoto = await uploadImageSafe(coverFile, 'covers');
+          toast('Uploading cover photo…', 'info');
+          const r = await uploadMedia(coverFile, 'cover');
+          finalCoverPhoto = r.url;
         } catch (e) {
-          console.warn("Cover image upload failed", e);
-          uploadErrors.push('cover photo');
+          console.error('[cover photo]', e);
+          warnings.push('cover photo (' + e.message + ')');
         }
       }
 
-      const updates={
-        name:editForm.name.trim(),
-        businessName:editForm.businessName.trim(),
-        phone:editForm.phone.trim(),
-        category:editForm.category,
-        location:editForm.location,
-        country:editForm.country||'Zambia',
-        scope:editForm.scope||'local',
+      const updates = {
+        name:         (editForm.name         || '').trim(),
+        businessName: (editForm.businessName || '').trim(),
+        phone:        (editForm.phone        || '').trim(),
+        category:     editForm.category,
+        location:     editForm.location,
+        country:      editForm.country || 'Zambia',
+        scope:        editForm.scope   || 'local',
         profilePhoto: finalProfilePhoto,
-        coverPhoto: finalCoverPhoto
+        coverPhoto:   finalCoverPhoto,
       };
-      if(isSupplier){
-        updates.products=splitCSV(editForm.products);
-        updates.moq=editForm.moq;
-        updates.delivery=editForm.delivery;
-        updates.leadTime=editForm.leadTime;
-        updates.website=editForm.website;
-        updates.photos=editForm.photos;
-        updates.regNo=editForm.regNo;
-        updates.docsUrl=editForm.docsUrl;
-        updates.refs=editForm.refs;
-        updates.featured=editForm.featured;
+
+      if (isSupplier) {
+        Object.assign(updates, {
+          products: splitCSV(editForm.products),
+          moq: editForm.moq, delivery: editForm.delivery, leadTime: editForm.leadTime,
+          website: editForm.website, photos: editForm.photos,
+          regNo: editForm.regNo, docsUrl: editForm.docsUrl,
+          refs: editForm.refs, featured: editForm.featured,
+        });
       } else {
-        updates.sources=splitCSV(editForm.sources);
-        updates.frequency=editForm.frequency;
-        updates.orderValue=editForm.orderValue;
+        Object.assign(updates, {
+          sources: splitCSV(editForm.sources),
+          frequency: editForm.frequency,
+          orderValue: editForm.orderValue,
+        });
       }
 
-      if(firebaseReady) await db.collection('se_users').doc(user.uid).update(updates);
+      // Firestore safety check — strip Base64 images if we'd exceed the 1 MB doc limit
+      try {
+        const payloadSize = new Blob([JSON.stringify(updates)]).size;
+        if (payloadSize > 900 * 1024) {
+          warnings.push('document size ' + Math.round(payloadSize / 1024) + ' KB exceeds safe limit');
+          delete updates.profilePhoto;
+          delete updates.coverPhoto;
+        }
+      } catch (_) {}
 
-      const updatedProfile = {...profile,...updates};
-      setProfile(updatedProfile);
-      setEditForm(prev => ({...prev, profilePhoto: finalProfilePhoto, coverPhoto: finalCoverPhoto}));
+      if (firebaseReady) {
+        await db.collection('se_users').doc(user.uid).update(updates);
+      }
+
+      const updated = { ...profile, ...updates };
+      setProfile(updated);
+      setEditForm(prev => ({
+        ...prev,
+        profilePhoto: updates.profilePhoto !== undefined ? updates.profilePhoto : prev.profilePhoto,
+        coverPhoto:   updates.coverPhoto   !== undefined ? updates.coverPhoto   : prev.coverPhoto,
+      }));
       setProfileFile(null);
       setCoverFile(null);
+      setImgResetKey(k => k + 1);   // forces ImageUploader preview to sync back to persisted state
 
-      if (uploadErrors.length > 0) {
-        setSaveMsg({kind:'err',msg:'Details saved, but image upload failed (' + uploadErrors.join(', ') + '). Try a smaller image.'});
-        toast('Details saved, but images failed to upload.', 'error');
+      if (warnings.length) {
+        setSaveMsg({ kind: 'err',
+          msg: 'Details saved, but some media could not be uploaded: ' + warnings.join('; ') });
+        toast('Details saved — media failed. Check the message for details.', 'error');
       } else {
-        setSaveMsg({kind:'ok',msg:'Profile saved. Images uploaded successfully.'});
-        toast('Profile and images saved!', 'success');
+        setSaveMsg({ kind: 'ok', msg: 'Profile updated successfully.' });
+        toast('Profile saved.', 'success');
       }
-      setTimeout(()=>setSaveMsg(null), 5000);
-    }catch(e){
-      setSaveMsg({kind:'err',msg:'Save failed: '+(e.message || e.code)});
+      setTimeout(() => setSaveMsg(null), 6000);
+    } catch (e) {
+      console.error('[saveProfile]', e);
+      setSaveMsg({ kind: 'err', msg: 'Save failed: ' + (e.message || e.code || 'Unknown') });
       toast('Save failed.', 'error');
+    } finally {
+      setSaving(false);
     }
-    finally{setSaving(false);}
   };
 
   const removeSaved = (id) => {
@@ -1914,7 +2125,14 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
         {tab==='profile' && editForm && (
           <>
-            <ProfileHeader profile={profile} onEditClick={()=>{}} isVerified={isVerified} />
+            <ProfileHeader
+              profile={profile}
+              onEditClick={()=>{
+                const el = document.getElementById('profile-media-section');
+                if (el) el.scrollIntoView({behavior:'smooth', block:'center'});
+              }}
+              isVerified={isVerified}
+            />
 
             <div className="card card-pad" style={{marginTop:16}}>
               <div className="form-grid">
@@ -1936,9 +2154,23 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
 
               <div style={{marginTop:16}}>
                 {isSupplier ? <>
-                  <div style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
-                    <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" previewW={100} previewH={100}/>
-                    <ImageUploader label="Cover Image (Wide)" currentUrl={editForm.coverPhoto} onFileSelect={setCoverFile} aspectRatio="3/1" previewW={240} previewH={80}/>
+                  <div id="profile-media-section" style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
+                    <ImageUploader
+                      label="Profile Image (Square)"
+                      currentUrl={editForm.profilePhoto}
+                      onFileSelect={setProfileFile}
+                      aspectRatio="1/1"
+                      previewW={100} previewH={100}
+                      resetKey={imgResetKey}
+                    />
+                    <ImageUploader
+                      label="Cover Image (Wide)"
+                      currentUrl={editForm.coverPhoto}
+                      onFileSelect={setCoverFile}
+                      aspectRatio="3/1"
+                      previewW={240} previewH={80}
+                      resetKey={imgResetKey}
+                    />
                   </div>
 
                   <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6, marginTop:16}}>Products (comma-separated)</label><TIn value={editForm.products} onChange={v=>setEditForm({...editForm,products:v})}/>
@@ -1967,8 +2199,15 @@ function Dashboard({user,onBrowse,onSignedOut,goHome}){
                     <label style={{fontSize:13, fontWeight:700, color:'#0A1F12'}}>Featured / Priority Placement</label>
                   </div>
                 </> : <>
-                  <div style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', marginBottom:16, background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
-                    <ImageUploader label="Profile Image (Square)" currentUrl={editForm.profilePhoto} onFileSelect={setProfileFile} aspectRatio="1/1" previewW={100} previewH={100}/>
+                  <div id="profile-media-section" style={{display:'grid', gap:12, gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', marginBottom:16, background:'#F8FAF6', padding:16, borderRadius:8, border:'1px solid rgba(10,31,18,.1)'}}>
+                    <ImageUploader
+                      label="Profile Image (Square)"
+                      currentUrl={editForm.profilePhoto}
+                      onFileSelect={setProfileFile}
+                      aspectRatio="1/1"
+                      previewW={100} previewH={100}
+                      resetKey={imgResetKey}
+                    />
                   </div>
                   <label style={{display:'block',fontSize:11.5,fontWeight:700,color:'#0A1F12',marginBottom:6}}>What you buy (comma-separated)</label><TIn value={editForm.sources} onChange={v=>setEditForm({...editForm,sources:v})}/>
                   <div style={{marginTop:12,display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))'}}>
